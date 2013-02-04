@@ -660,11 +660,26 @@ context.start = function(opt) {
   this.left.render = function() {
     var ret = render.apply(this, arguments);
 
-    // Redraw separator.
-    var end = this.x + this.padding * 2 + this.width(), i = 0;
+    var visible = this.visible();
+
+    // This is needed for searching and getting
+    // an item at index 1 even when there aren't
+    // enough items to fill the entire screen.
+    // Fix for resize.
+    var end = this.x + this.padding * 2 + this.width()
+      , i = 0
+      , j;
     while (i++ < this.ym()) {
-      p.move(end, i);
-      p.write('│');
+      if (i > visible.length) {
+        p.move(this.x, i);
+        j = end - this.x;
+        while (j--) p.write(' ');
+        p.write('│');
+        p.el();
+      } else {
+        p.move(end, i);
+        p.write('│');
+      }
     }
 
     if (self.focus() !== self.left) {
