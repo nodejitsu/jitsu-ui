@@ -114,7 +114,9 @@ require = function(name) {
   };
 
   jitsu.apps.update = function(app, value, callback) {
-    return callback();
+    return setTimeout(function() {
+      return callback();
+    }, 3000);
   };
 
   jitsu.snapshots.list = function(name, callback) {
@@ -135,9 +137,9 @@ require = function(name) {
   };
 
   jitsu.snapshots.activate = function(app, id, callback) {
-     setTimeout(function() {
-       return callback();
-     }, 3000);
+    return setTimeout(function() {
+      return callback();
+    }, 3000);
   };
 
   jitsu.logs.byApp = function(app, amount, callback) {
@@ -1047,11 +1049,14 @@ context.key = function(ch, key) {
     }
 
     if (this.focus() === this.env) {
-      return this.setInput('Editing env: ' + this.env.selected().key, function(input) {
+      var name = this.env.selected().key;
+      return this.setInput('Editing env: ' + name, function(input) {
         var data = {};
         data[self.env.selected().key] = input;
+        self.startLoading();
         return jitsu.apps.update(self.left.selected().name, data, function() {
-          ;
+          self.stopLoading();
+          self.echo('Saved variable: ' + name);
         });
       });
     }
