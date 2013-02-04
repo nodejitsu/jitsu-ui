@@ -1339,6 +1339,12 @@ function start(opt, callback) {
   program.clear();
   program.hideCursor();
 
+  process.on('uncaughtException', function(err) {
+    err = err || '';
+    err = err.message || err;
+    context.error(err + '');
+  });
+
   context.start({
     program: program,
     apps: opt.apps,
