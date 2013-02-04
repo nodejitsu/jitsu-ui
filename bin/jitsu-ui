@@ -1002,16 +1002,6 @@ context.key = function(ch, key) {
     if (this.focus() === this.left) {
       return this.exit();
     }
-    /*
-    if (this.focus() === this.right && this.right._old) {
-      // XXX Clean up!
-      this.right.offset = this.right._old.offset;
-      this.right.index = this.right._old.index;
-      this.right.data = this.right._old.data;
-      delete this.right._old;
-      return this.render();
-    }
-    */
     this.focusPrevious();
     return this.render();
   }
@@ -1197,22 +1187,6 @@ context.executeRight = function(option) {
     return jitsu.snapshots.list(this.left.selected().name, function(err, snapshots) {
       if (err) return;
 
-      /*
-      snapshots = snapshots.map(function(data) {
-        return data.id;
-      });
-
-      // XXX Clean up!
-      self.right._old = {
-        data: self.right.data,
-        offset: self.right.offset,
-        index: self.right.index
-      };
-      self.right.data = snapshots;
-      self.right.offset = 0;
-      self.right.index = 1;
-      */
-
       snapshots.forEach(function(snapshot) {
         snapshot.text = snapshot.id
           + ' - '
@@ -1229,7 +1203,6 @@ context.executeRight = function(option) {
         width: self.right.width(),
         padding: self.right.padding,
         bottom: self.right.bottom,
-        //key: 'filename',
         key: 'text',
         selected: self.right._selected,
         unselected: self.right.unselected
