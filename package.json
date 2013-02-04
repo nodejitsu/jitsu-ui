@@ -1,0 +1,13 @@
+{
+  "name": "jitsu-ui",
+  "description": "A TUI for jitsu.",
+  "author": "Christopher Jeffrey",
+  "version": "0.0.0",
+  "main": "./index.js",
+  "repository": "git://github.com/chjj/jitsu-ui.git",
+  "homepage": "https://github.com/chjj/jitsu-ui",
+  "bugs": { "url": "http://github.com/chjj/jitsu-ui/issues" },
+  "keywords": ["nodejitsu", "jitsu", "tui"],
+  "tags": ["nodejitsu", "jitsu", "tui"],
+  "scripts": { "test": "node test", "bench": "node test --bench" }
+}
