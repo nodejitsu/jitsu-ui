@@ -16,37 +16,25 @@ var child_process = require('child_process')
   , path = require('path')
   , util = require('util')
   , fs = require('fs')
-  , EventEmitter = require('events').EventEmitter;
-
-var jitsu = { setup: function(c) { c(); }, apps: {} };
-//var jitsu = require('jitsu');
+  , EventEmitter = require('events').EventEmitter
+  , blessed = require('blessed')
+  , jitsu = { setup: function(c) { c(); }, apps: {} };
+  //, jitsu = require('jitsu');
 
 /**
- * Program
+ * Context
  */
 
-var blessed = require('blessed')
-  , p;
-
-function quote(text) {
-  text = text
-    .replace(/([\\"$])/g, '\\$1')
-    .replace(/\r/g, '')
-    .replace(/\n/g, '\\n');
-
-  return '"' +  text + '"';
+function Context(program) {
+  EventEmitter.call(this);
+  this.program = program;
 }
 
-function clean(text) {
-  return /^([^\r\n]*)/.exec(text)[1].trim().replace(/\x1b+/g, ' ');
-}
+Context.prototype.__proto__ = EventEmitter.prototype;
 
-
-
-
-
-
-
+/**
+ * List
+ */
 
 function List(options) {
   EventEmitter.call(this);
@@ -203,166 +191,9 @@ List.prototype.selected = function() {
   return this.data[this.offset + this.index - 1] || 0;
 };
 
-function Context(program) {
-  EventEmitter.call(this);
-  this.program = program;
-  this.states = [];
-}
-
-Context.prototype.__proto__ = EventEmitter.prototype;
-
-Context.prototype.state = function(state) {
-  if (state) return this.states.push(state);
-  return this.states[this.states.length-1] || 'top';
-};
-
-var context = new Context({});
-
-context.start = function(opt) {
-  var p = this.program = opt.program;
-
-  var longest = 0;
-  opt.apps.forEach(function(app) {
-    if (app.name.length > longest) {
-      longest = app.name.length;
-    }
-  });
-
-  this.longest = longest;
-
-  this.left = new List({
-    context: this,
-    data: opt.apps,
-    x: 1,
-    y: 1,
-    padding: 1,
-    width: longest,
-    bottom: 2,
-    key: 'name',
-    selected: 'blue bg',
-    unselected: 'red fg'
-  });
-
-  this.right = new List({
-    context: this,
-    data: opt.right,
-    x: longest + 4,
-    y: 1,
-    width: Infinity,
-    padding: 1,
-    bottom: 2,
-    key: '',
-    selected: 'blue bg',
-    unselected: ''
-  });
-
-  this.statusbar = new Statusbar({
-    context: this,
-    x: 1,
-    y: 1
-  });
-
-  this.content = new Content({
-    text: '',
-    context: this,
-    bottom: 2,
-    x: longest + 4,
-    y: 1
-  });
-
-  this.dialog = new Dialog({
-    text: '',
-    context: this,
-    bottom: 2,
-    x: longest + 4,
-    y: 1
-  });
-
-  this.input = new Input({
-    text: '',
-    context: this,
-    bottom: 2,
-    x: longest + 4,
-    y: 1
-  });
-
-  var self = this;
-  var _render = this.left.render;
-  this.left.render = function() {
-    _render.call(this);
-    if (self.focus() !== this) return;
-    this.visible().forEach(function(app, i) {
-      p.move(this.x + this.padding * 2 + this.width(), this.y + i);
-      // separator
-      p.write('│ ');
-
-      // state
-      p.write(app.state + '');
-
-      // separator
-      p.write(' │ ');
-
-      // subdomain
-      p.write(app.subdomain + '');
-
-      // separator
-      p.write(' │ ');
-
-      // drones
-      p.write(app.drones + '/' + app.maxDrones);
-
-      // separator
-      p.write(' │ ');
-
-      // snapshot
-      p.write(app.active.filename);
-    }, this);
-  };
-
-  this.statusbar.refresh = function() {
-    self.statusbar.render(
-      self.left.selected().name,
-      jitsu.config.get('username'));
-  };
-
-  this.focus(this.left);
-};
-
-context.focusStack = [];
-
-context.focus = function(target) {
-  return !target
-    ? context.focusStack[context.focusStack.length-1]
-    : context.focusStack.push(target);
-};
-
-context.lastFocus = function() {
-  return this.focusStack.pop();
-};
-
-context.scroll = function(i) {
-  return this.focus().scroll(i);
-};
-
-context.render = function() {
-  var p = this.program;
-
-  this.focus().render();
-
-  var longest = this.longest;
-  var out = Array(longest + 2 + 1).join('─');
-  out += '┴';
-  out += Array(p.cols - 10 + 1).join('─');
-  p.move(1, p.rows - 1);
-  p.write(out);
-
-  this.statusbar.refresh();
-};
-
-context.refresh = function() {
-  this.statusbar.refresh();
-};
-
+/**
+ * Statusbar
+ */
 
 function Statusbar(options) {
   EventEmitter.call(this);
@@ -398,7 +229,9 @@ Statusbar.prototype.render = function(left, right) {
   if (this.bg) p.bg('!' + this.bg);
 };
 
-
+/**
+ * Content
+ */
 
 function Content(options) {
   options = options || {};
@@ -513,7 +346,9 @@ Content.prototype.visible = function() {
   return this.data.slice(this.offset, this.offset + this.ym());
 };
 
-
+/**
+ * Input
+ */
 
 function Input(options) {
   options = options || {};
@@ -539,7 +374,9 @@ Input.prototype.render = function() {
   p.showCursor();
 };
 
-
+/**
+ * Dialog
+ */
 
 function Dialog(options) {
   options = options || {};
@@ -560,10 +397,161 @@ Dialog.prototype.render = function() {
   p.write('   Cancel   ', 'black bg');
 };
 
+/**
+ * JitsuContext
+ */
 
+function JitsuContext(program) {
+  Context.call(this, program);
+  this.focusStack = [];
+}
 
+JitsuContext.prototype.__proto__ = Context.prototype;
 
+var context = JitsuContext.prototype;
 
+context.start = function(opt) {
+  var p = this.program = opt.program;
+
+  var longest = 0;
+  opt.apps.forEach(function(app) {
+    if (app.name.length > longest) {
+      longest = app.name.length;
+    }
+  });
+
+  this.longest = longest;
+
+  this.left = new List({
+    context: this,
+    data: opt.apps,
+    x: 1,
+    y: 1,
+    padding: 1,
+    width: longest,
+    bottom: 2,
+    key: 'name',
+    selected: 'blue bg',
+    unselected: 'red fg'
+  });
+
+  this.right = new List({
+    context: this,
+    data: opt.right,
+    x: longest + 4,
+    y: 1,
+    width: Infinity,
+    padding: 1,
+    bottom: 2,
+    key: '',
+    selected: 'blue bg',
+    unselected: ''
+  });
+
+  this.statusbar = new Statusbar({
+    context: this,
+    x: 1,
+    y: 1
+  });
+
+  this.content = new Content({
+    text: '',
+    context: this,
+    bottom: 2,
+    x: longest + 4,
+    y: 1
+  });
+
+  this.dialog = new Dialog({
+    text: '',
+    context: this,
+    bottom: 2,
+    x: longest + 4,
+    y: 1
+  });
+
+  this.input = new Input({
+    text: '',
+    context: this,
+    bottom: 2,
+    x: longest + 4,
+    y: 1
+  });
+
+  var self = this;
+  var _render = this.left.render;
+  this.left.render = function() {
+    _render.call(this);
+    if (self.focus() !== this) return;
+    this.visible().forEach(function(app, i) {
+      p.move(this.x + this.padding * 2 + this.width(), this.y + i);
+      // separator
+      p.write('│ ');
+
+      // state
+      p.write(app.state + '');
+
+      // separator
+      p.write(' │ ');
+
+      // subdomain
+      p.write(app.subdomain + '');
+
+      // separator
+      p.write(' │ ');
+
+      // drones
+      p.write(app.drones + '/' + app.maxDrones);
+
+      // separator
+      p.write(' │ ');
+
+      // snapshot
+      p.write(app.active.filename);
+    }, this);
+  };
+
+  this.statusbar.refresh = function() {
+    self.statusbar.render(
+      self.left.selected().name,
+      jitsu.config.get('username'));
+  };
+
+  this.focus(this.left);
+};
+
+context.focus = function(target) {
+  return !target
+    ? this.focusStack[this.focusStack.length-1]
+    : this.focusStack.push(target);
+};
+
+context.lastFocus = function() {
+  return this.focusStack.pop();
+};
+
+context.scroll = function(i) {
+  return this.focus().scroll(i);
+};
+
+context.render = function() {
+  var p = this.program;
+
+  this.focus().render();
+
+  var longest = this.longest;
+  var out = Array(longest + 2 + 1).join('─');
+  out += '┴';
+  out += Array(p.cols - 10 + 1).join('─');
+  p.move(1, p.rows - 1);
+  p.write(out);
+
+  this.statusbar.refresh();
+};
+
+context.refresh = function() {
+  this.statusbar.refresh();
+};
 
 context.resize = function() {
   var p = this.program;
@@ -937,7 +925,7 @@ context.executeRight = function(option) {
 
   if (option === 'snapshots') {
     // FIXME
-    this.state('right');
+    // this.state('right');
     return jitsu.snapshots.list(this.left.selected().name, function(err, snapshots) {
       if (err) return;
       snapshots = snapshots.map(function(data) {
@@ -954,7 +942,8 @@ context.executeRight = function(option) {
 };
 
 function render(opt, callback) {
-  var program = blessed();
+  var program = blessed()
+    , context = new JitsuContext(program);
 
   if (!program.output.isTTY) {
     console.log(apps);
@@ -992,1232 +981,6 @@ function render(opt, callback) {
   program.on('resize', context.resize.bind(context));
 
   context.render();
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function render_(opt, callback) {
-  var apps = opt.apps
-    , right = [
-        'deploy',
-        //'list',
-        //'create',
-        'view',
-        //'update',
-        'destroy',
-        'start',
-        'restart',
-        'stop',
-        'setdrones',
-        'logs',
-        'snapshots',
-        'env'
-      ];
-
-  p = blessed();
-
-  if (!p.output.isTTY) {
-    console.log(apps);
-    return process.exit(0);
-  }
-
-  p.setTitle('jitsu');
-
-  p.alternateBuffer();
-  p.enableMouse();
-
-  context.start({
-    program: p,
-    apps: apps,
-    right: right
-  });
-
-  p.on('mouse', function(key) {
-    if (key.action === 'wheelup') {
-      return onkey(null, { name: 'u' });
-    }
-    if (key.action === 'wheeldown') {
-      return onkey(null, { name: 'd' });
-    }
-    if (key.action === 'mousedown' && key.button === 'left') {
-      if (key.y === p.rows) {
-        return onkey('/', { name: 'slash' });
-      }
-      if (context.focus() === context.right) {
-        if (key.x >= context.right.x) {
-          return right.index === key.y
-            ? onkey(null, { name: 'enter' })
-            : context.scroll(key.y - right.index);
-        } else {
-          context.focus(context.left);
-          context.render();
-        }
-      }
-      if (context.focus() === context.dialog || context.focus() === context.input) {
-        if (key.x >= context.dialog.x && key.x <= context.dialog.x + 10) {
-          return onkey(null, { name: 'enter' });
-        } else if (key.x >= context.dialog.x + 11 && key.x <= context.dialog.x + 21) {
-          return onkey(null, { name: 'escape' });
-        }
-      }
-      return context.left.index === key.y
-        ? onkey(null, { name: 'enter' })
-        : context.scroll(key.y - context.left.index);
-    }
-  });
-
-  function onkey(ch, key) {
-    if (p._needsClear) {
-      p._needsClear = false;
-      p.move(1, p.rows);
-      p.eraseInLine('right');
-      //context.statusbar.render();
-      context.render();
-    }
-
-    if (key.name === 'mouse') {
-      return;
-    }
-
-    if (context.focus() === context.input) {
-      context.input._text = context.input._text || '';
-      if (key.name === 'backspace' && !context.input._text) {
-        return onkey(null, {name:'escape'});
-      }
-      if (key.name === 'backspace') {
-        context.input._text = context.input._text.slice(0, -1);
-        p.back();
-        p.echo(' ', 'black bg');
-        p.back();
-        return;
-      }
-      if (key.name === 'enter') {
-        states.pop();
-        p.hideCursor();
-        if (context.input.callback) {
-          context.input.callback(context.input._text);
-          context.input._text = '';
-          context.input.callback = null;
-        }
-        //return context.focus().render();
-        return context.render();
-      }
-      if (key.name === 'escape') {
-        context.focus(context.right);
-        p.hideCursor();
-        if (context.input.callback) {
-          context.input.callback();
-          context.input.callback = null;
-        }
-        //return context.focus().render();
-        return context.render();
-      }
-      if (ch) {
-        context.input._text += ch;
-        p.write(ch, 'black bg');
-      }
-      return;
-    }
-
-    if (p._enter) {
-      if (key.name === 'enter') {
-        p.hideCursor();
-        p.eraseInLine('left');
-
-        var enter = p._enter;
-        p._lastEnter = enter;
-        delete p._enter;
-
-        var parts = enter.data.split(' ')
-          , cmd = parts[0]
-          , val = parts.slice(1).join(' ');
-
-        if (cmd === 'echo') {
-          return echo(val);
-        }
-
-        if (cmd === 'q') {
-          return exit();
-        }
-
-        return;
-      }
-
-      if (key.name === 'backspace') {
-        if (!p._enter.data.length) {
-          p.eraseInLine('left');
-          return onkey(null, {name:'escape'});
-        }
-        p._enter.data = p._enter.data.slice(0, -1);
-        p.back();
-        p.deleteChars();
-        return;
-      }
-
-      if (key.name === 'escape') {
-        p._enter.canceled = true;
-        p._lastEnter = p._enter;
-        delete p._enter;
-        p.hideCursor();
-        p.eraseInLine('left');
-        return context.render();
-      }
-
-      if (ch) {
-        p._enter.data += ch;
-        p.write(ch);
-        return;
-      }
-
-      return;
-    }
-
-    if (key.name === 'down' || key.name === 'j') {
-      return context.scroll(1);
-    }
-
-    if (key.name === 'up' || key.name === 'k') {
-      return context.scroll(-1);
-    }
-
-    if (key.name === 'd') {
-      return context.scroll(context.focus().ym() / 2 | 0);
-    }
-
-    if (key.name === 'u') {
-      return context.scroll(-(context.focus().ym() / 2 | 0));
-    }
-
-    if (key.name === 'f') {
-      return context.scroll(context.focus().ym());
-    }
-
-    if (key.name === 'b') {
-      return context.scroll(-context.focus().ym());
-    }
-
-    if (ch === 'H') {
-      return context.scroll(1 - context.focus().index);
-    }
-
-    if (ch === 'M') {
-      return context.scroll((Math.min(context.focus().ym(), context.focus().data.length) / 2 | 0) - context.focus().index);
-    }
-
-    if (ch === 'L') {
-      return context.scroll(Math.min(context.focus().ym(), context.focus().data.length) - context.focus().index);
-    }
-
-    if (ch === 'g') {
-      return context.scroll(-Math.max(context.focus().data.length, p.rows));
-    }
-
-    if (ch === 'G') {
-      return context.scroll(Math.max(context.focus().data.length, p.rows));
-    }
-
-    if (key.name === 'escape'
-        || key.name === 'h'
-        || key.name === 'left'
-        || key.name === 'q'
-        || (key.ctrl && key.name === 'c')) {
-      if (context.focus() === context.left) {
-        return exit();
-      }
-      if (context.focus() === context.right) {
-        // FIXME
-        if (context.right.old) {
-          context.right = context.right.old;
-        }
-      }
-      context.lastFocus();
-      return context.render();
-    }
-
-    if (key.name === 'right'
-        || key.name === 'l'
-        || key.name === 'enter') {
-      if (context.focus() === context.left) {
-        context.right.offset = 0;
-        context.right.index = 1;
-        context.focus(context.right);
-        return context.render();
-      }
-
-      if (context.focus() === context.right) {
-        return executeRight(context.right.selected());
-      }
-
-      //return context.focus.render();
-      return context.render();
-    }
-
-    if (key.name === 's' || ch === ':') {
-      p.move(1, p.rows);
-      p.eraseInLine('right');
-      p.showCursor();
-      p.write(':');
-      p._enter = {
-        id: context.left.selected().name,
-        data: ''
-      };
-      return;
-    }
-  }
-
-  function echo(text, noClear) {
-    p.move(1, p.rows);
-    p.eraseInLine('right');
-    p.echo(text);
-    p._needsClear = !noClear;
-  }
-
-  function exit() {
-    p.disableMouse();
-    p.clear();
-    p.showCursor();
-    p.normalBuffer();
-    return process.exit(0);
-  }
-
-  context.clearInput = function() {
-    if (p._enter) {
-      onkey('\x1b', { name: 'escape' });
-    }
-  };
-
-  function setContent(text) {
-    context.content.offset = 0;
-    context.content.text = text;
-    context.content.parse(text);
-    context.focus(context.content);
-    //context.focus().render();
-    context.render();
-  }
-
-  function setInput(text, cb) {
-    context.input.offset = 0;
-    context.input.parse(text);
-    context.input.callback = cb;
-    context.focus(context.input);
-    //context.focus().render();
-    context.render();
-  }
-
-  function setChoice(text, cb) {
-    context.dialog.offset = 0;
-    context.dialog.parse(text);
-    context.dialog.callback = cb;
-    context.focus(context.dialog);
-    //context.focus().render();
-    context.render();
-  }
-
-  var loadsym = ['|', '/', '-', '\\']
-    , load;
-
-  function startLoading() {
-    var i = 0;
-    load = setInterval(function() {
-      echo('Loading... ' + loadsym[i], true);
-      if (++i === loadsym.length) i = 0;
-    }, 300);
-  }
-
-  function stopLoading() {
-    if (load) {
-      clearInterval(load);
-      load = null;
-    }
-    echo('');
-  }
-
-  function executeRight(option) {
-    if (option === 'deploy') {
-      return setInput('Deploy from where? \ne.g. ~/node_modules/foobar.', function(input) {
-        if (!input) return;
-        input = input.replace(/^~/, process.env.HOME);
-        startLoading();
-        setTimeout(function() {
-          stopLoading();
-          echo(input);
-        }, 5000);
-      });
-    }
-    if (option === 'destroy') {
-      var msg = 'Deleting application: '
-        + context.left.selected().name + '.'
-        + '\nAre you sure? Type `yes` to continue.';
-      return setInput(msg, function(input) {
-        if (!input) return;
-        startLoading();
-        setTimeout(function() {
-          stopLoading();
-          echo(input);
-        }, 5000);
-      });
-    }
-    if (option === 'setdrones') {
-      var msg = 'Drones for application: '
-        + context.left.selected().name + '.'
-        + '\nCurrent drones: N/A.'
-        + '\nEnter the number of drones desired:';
-      return setInput(msg, function(input) {
-        if (!input) return;
-        startLoading();
-        setTimeout(function() {
-          stopLoading();
-          echo(input);
-        }, 5000);
-      });
-    }
-    if (option === 'view') {
-      var name = context.left.selected().name;
-      return jitsu.apps.view(name, function(err, app) {
-        return err
-          ? setContent(err.stack)
-          : setContent(inspect(app));
-      });
-    }
-    if (option === 'snapshots') {
-      // FIXME
-      state('right');
-      return jitsu.snapshots.list(context.left.selected().name, function(err, snapshots) {
-        if (err) return;
-        snapshots = snapshots.map(function(data) {
-          return data.id;
-        });
-        snapshots.__proto__ = right;
-        snapshots.old = right;
-        right = snapshots;
-        right.offset = 0;
-        right.index = 1;
-        return context.render();
-      });
-    }
-  }
-
-  p.on('keypress', onkey);
-
-  p.on('resize', function() {
-    if (context.left.index > p.rows - 2) {
-      context.left.index = p.rows - 2;
-    }
-    if (context.right.index > p.rows - 2) {
-      context.right.index = p.rows - 2;
-    }
-    context.render();
-  });
-
-  p.clear();
-  p.hideCursor();
-
-  context.render();
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function render___(opt, callback) {
-  var apps = opt.apps
-    , right = [];
-
-  var longest = 0;
-
-  p = blessed();
-
-  if (!p.output.isTTY) {
-    console.log(apps);
-    return process.exit(0);
-  }
-
-  p.setTitle('jitsu');
-
-  apps.offset = 0;
-  apps.index = 1;
-  p.statusbar = opt.status ? 2 : 0;
-
-  right.offset = 0;
-  right.index = 1;
-
-  right = [
-    'deploy',
-    //'list',
-    //'create',
-    'view',
-    //'update',
-    'destroy',
-    'start',
-    'restart',
-    'stop',
-    'setdrones',
-    'logs',
-    'snapshots',
-    'env'
-  ];
-
-  p.coffset = 0;
-
-  apps.forEach(function(app, i) {
-    if (app.name.length > longest) {
-      longest = app.name.length;
-    }
-  });
-
-  p.alternateBuffer();
-  p.enableMouse();
-
-  p.on('mouse', function(key) {
-    if (key.action === 'wheelup') {
-      return onkey(null, { name: 'u' });
-    }
-    if (key.action === 'wheeldown') {
-      return onkey(null, { name: 'd' });
-    }
-    if (key.action === 'mousedown' && key.button === 'left') {
-      if (p.statusbar && key.y === p.rows) {
-        if (p._search) return onkey('\x1b', { name: 'escape' });
-        return onkey('/', { name: 'slash' });
-      }
-      if (state() === 'right') {
-        if (key.x >= longest + 5) {
-          return right.index === key.y
-            ? onkey(null, { name: 'enter' })
-            : scroll(key.y - right.index);
-        } else {
-          states.pop();
-          renderList();
-        }
-      }
-      if (state() === 'input' || state() === 'choice') {
-        // ok: longest + 5 + 1 to longest + 5 + 1 + 10
-        // cancel: longest + 5 + 1 + 10 + 1 to longest + 5 + 1 + 10 + 1 + 10
-        //if (key.y < 5) return;
-        if (key.x >= longest + 6 && key.x <= longest + 16) {
-          return onkey(null, { name: 'enter' });
-        } else if (key.x >= longest + 17 && key.x <= longest + 27) {
-          return onkey(null, { name: 'escape' });
-        }
-      }
-      return apps.index === key.y
-        ? onkey(null, { name: 'enter' })
-        : scroll(key.y - apps.index);
-    }
-  });
-
-  function onkey(ch, key) {
-    if (p._needsClear) {
-      p._needsClear = false;
-      p.move(1, p.rows);
-      p.eraseInLine('right');
-      renderList();
-    }
-
-    if (key.name === 'mouse') {
-      return;
-    }
-
-    if (state() === 'input') {
-      p._inputText = p._inputText || '';
-      if (key.name === 'backspace' && !p._inputText) {
-        return onkey(null, {name:'escape'});
-      }
-      if (key.name === 'backspace') {
-        p._inputText = p._inputText.slice(0, -1);
-        p.back();
-        p.echo(' ', 'black bg');
-        p.back();
-        return;
-      }
-      if (key.name === 'enter') {
-        states.pop();
-        p.hideCursor();
-        if (inputcb) {
-          inputcb(p._inputText);
-          p._inputText = '';
-          inputcb = null;
-        }
-        return renderList();
-      }
-      if (key.name === 'escape') {
-        states.pop();
-        p.hideCursor();
-        if (inputcb) {
-          inputcb();
-          inputcb = null;
-        }
-        return renderList();
-      }
-      if (ch) {
-        p._inputText += ch;
-        p.write(ch, 'black bg');
-      }
-      return;
-    }
-
-    if (p._enter) {
-      if (key.name === 'enter') {
-        p.hideCursor();
-        p.eraseInLine('left');
-
-        var enter = p._enter;
-        p._lastEnter = enter;
-        delete p._enter;
-
-        var parts = enter.data.split(' ')
-          , cmd = parts[0]
-          , val = parts.slice(1).join(' ');
-
-        if (cmd === 'echo') {
-          return echo(val);
-        }
-
-        if (cmd === 'status') {
-          p.statusbar = p.statusbar ? 0 : 2;
-          return updateStatusbar();
-        }
-
-        if (cmd === 'q') {
-          return exit();
-        }
-
-        return;
-      }
-
-      if (key.name === 'backspace') {
-        if (!p._enter.data.length) {
-          p.eraseInLine('left');
-          return onkey(null, {name:'escape'});
-        }
-        p._enter.data = p._enter.data.slice(0, -1);
-        p.back();
-        p.deleteChars();
-        return;
-      }
-
-      if (key.name === 'escape') {
-        p._enter.canceled = true;
-        p._lastEnter = p._enter;
-        delete p._enter;
-        p.hideCursor();
-        p.eraseInLine('left');
-        return renderList();
-      }
-
-      if (ch) {
-        p._enter.data += ch;
-        p.write(ch);
-        return;
-      }
-
-      return;
-    }
-
-    if (key.name === 'down' || key.name === 'j') {
-      return scroll(1);
-    }
-
-    if (key.name === 'up' || key.name === 'k') {
-      return scroll(-1);
-    }
-
-    if (key.name === 'd') {
-      return scroll((p.rows - p.statusbar) / 2 | 0);
-    }
-
-    if (key.name === 'u') {
-      return scroll(-((p.rows - p.statusbar) / 2 | 0));
-    }
-
-    if (key.name === 'f') {
-      return scroll(p.rows - p.statusbar);
-    }
-
-    if (key.name === 'b') {
-      return scroll(-(p.rows - p.statusbar));
-    }
-
-    if (ch === 'H') {
-      return scroll(1 - apps.index);
-    }
-
-    if (ch === 'M') {
-      return scroll((Math.min(p.rows - p.statusbar, apps.length) / 2 | 0) - apps.index);
-    }
-
-    if (ch === 'L') {
-      return scroll(Math.min(p.rows - p.statusbar, apps.length) - apps.index);
-    }
-
-    if (ch === 'g') {
-      return scroll(-Math.max(apps.length, p.rows));
-    }
-
-    if (ch === 'G') {
-      return scroll(Math.max(apps.length, p.rows));
-    }
-
-    if (key.name === 'escape'
-        || key.name === 'h'
-        || key.name === 'left'
-        || key.name === 'q'
-        || (key.ctrl && key.name === 'c')) {
-      if (state() === 'top') {
-        return exit();
-      }
-      if (state() === 'right') {
-        if (right.old) {
-          right = right.old;
-        }
-      }
-      states.pop();
-      return renderList();
-    }
-
-    if (key.name === 'right'
-        || key.name === 'l'
-        || key.name === 'enter') {
-      if (state() === 'top') {
-        right.offset = 0;
-        right.index = 1;
-        state('right');
-        return renderList();
-      }
-
-      if (state() === 'right') {
-        return executeRight(right[right.offset + right.index - 1]);
-      }
-
-      return renderList();
-    }
-
-    if (key.name === 's' || ch === ':') {
-      p.move(1, p.rows);
-      p.eraseInLine('right');
-      p.showCursor();
-      p.write(':');
-      p._enter = {
-        id: apps[apps.offset + apps.index - 1].name,
-        data: ''
-      };
-      return;
-    }
-  }
-
-  function echo(text, noClear) {
-    p.move(1, p.rows);
-    p.eraseInLine('right');
-    p.echo(text);
-    p._needsClear = !noClear;
-  }
-
-  function exit() {
-    p.disableMouse();
-    p.clear();
-    p.showCursor();
-    p.normalBuffer();
-    return process.exit(0);
-  }
-
-  var states = [];
-  function state(st) {
-    if (st) return states.push(st);
-    return states[states.length-1] || 'top';
-  }
-
-  apps.x = 2;
-  apps.key = 'name';
-  apps.selected = 'blue bg';
-  apps.unselected = 'red fg';
-
-  right.x = longest + 5;
-  right.selected = 'blue bg';
-  right.unselected = '';
-
-  function scroll(i) {
-    if (!i) return;
-
-    if (p._enter) {
-      onkey('\x1b', { name: 'escape' });
-    }
-
-    if (state() === 'content') {
-      p.coffset += i;
-      return renderList();
-    }
-
-/*
-    if (state() === 'right') {
-      if (i > 0) {
-        if (right.offset + right.index === right.length) return;
-      } else if (i < 0) {
-        if (right.offset + right.index === 1) return;
-      }
-      if (right.index + i > p.rows - p.statusbar) {
-        right.index += i;
-        var r = right.index - (p.rows - p.statusbar);
-        right.index = p.rows - p.statusbar;
-        right.offset += r;
-        if (!right[right.offset + right.index - 1]) {
-          right.offset = Math.max(p.rows, right.length) - p.rows;
-          if (p.rows <= right.length) {
-            right.offset += p.statusbar;
-          }
-          right.index = Math.min(p.rows - p.statusbar, right.length);
-        }
-        return renderList();
-      } else if (right.index + i < 1) {
-        right.index += i;
-        right.offset += right.index - 1;
-        if (right.offset < 0) right.offset = 0;
-        right.index = 1;
-        return renderList();
-      } else {
-        if (right.offset + (right.index - 1) + i > (right.length - 1)) {
-          i = (right.length - 1) - (right.offset + (right.index - 1));
-        }
-        p.move(longest + 5, right.index);
-        p.write(right[right.offset + right.index - 1]);
-        right.index += i;
-        p.move(longest + 5, right.index);
-        p.write(right[right.offset + right.index - 1], 'blue bg');
-        p.move(longest + 5, right.index);
-        //updateStatusbar();
-        return;
-      }
-    }
-
-    if (i > 0) {
-      if (apps.offset + apps.index === apps.length) return;
-    } else if (i < 0) {
-      if (apps.offset + apps.index === 1) return;
-    }
-
-    if (apps.index + i > p.rows - p.statusbar) {
-      apps.index += i;
-      var r = apps.index - (p.rows - p.statusbar);
-      apps.index = p.rows - p.statusbar;
-      apps.offset += r;
-      if (!apps[apps.offset + apps.index - 1]) {
-        apps.offset = Math.max(p.rows, apps.length) - p.rows;
-        if (p.rows <= apps.length) {
-          apps.offset += p.statusbar;
-        }
-        apps.index = Math.min(p.rows - p.statusbar, apps.length);
-      }
-      return renderList();
-    } else if (apps.index + i < 1) {
-      apps.index += i;
-      apps.offset += apps.index - 1;
-      if (apps.offset < 0) apps.offset = 0;
-      apps.index = 1;
-      return renderList();
-    } else {
-      if (apps.offset + (apps.index - 1) + i > (apps.length - 1)) {
-        i = (apps.length - 1) - (apps.offset + (apps.index - 1));
-      }
-      p.move(2, apps.index);
-      p.write(apps[apps.offset + apps.index - 1].name, 'red fg');
-      apps.index += i;
-      p.move(2, apps.index);
-      p.write(apps[apps.offset + apps.index - 1].name, 'blue bg');
-      p.move(1, apps.index);
-      updateStatusbar();
-      return;
-    }
-*/
-
-    var data = state() === 'right'
-      ? right
-      : apps;
-
-    if (i > 0) {
-      if (data.offset + data.index === data.length) return;
-    } else if (i < 0) {
-      if (data.offset + data.index === 1) return;
-    }
-
-    if (data.index + i > p.rows - p.statusbar) {
-      data.index += i;
-      var r = data.index - (p.rows - p.statusbar);
-      data.index = p.rows - p.statusbar;
-      data.offset += r;
-      if (!data[data.offset + data.index - 1]) {
-        data.offset = Math.max(p.rows, data.length) - p.rows;
-        if (p.rows <= data.length) {
-          data.offset += p.statusbar;
-        }
-        data.index = Math.min(p.rows - p.statusbar, data.length);
-      }
-      return renderList();
-    } else if (data.index + i < 1) {
-      data.index += i;
-      data.offset += data.index - 1;
-      if (data.offset < 0) data.offset = 0;
-      data.index = 1;
-      return renderList();
-    } else {
-      var item;
-      if (data.offset + (data.index - 1) + i > (data.length - 1)) {
-        i = (data.length - 1) - (data.offset + (data.index - 1));
-      }
-      p.move(data.x, data.index);
-      item = data[data.offset + data.index - 1];
-      p.write(item[data.key] || item, data.unselected);
-      data.index += i;
-      p.move(data.x, data.index);
-      item = data[data.offset + data.index - 1];
-      p.write(item[data.key] || item, data.selected);
-      p.move(data.x, data.index);
-      updateStatusbar();
-      return;
-    }
-  }
-
-  function updateStatusbar() {
-    if (!p.statusbar) return;
-
-    var out = Array(longest + 2 + 1).join('─');
-    out += '┴';
-    out += Array(p.cols - 10 + 1).join('─');
-    p.move(1, p.rows - 1);
-    p.write(out);
-
-    var selected = apps[apps.offset + apps.index - 1]
-      , left
-      , right;
-
-    left = selected.name || 'foo';
-
-    right = jitsu.config.get('username') || '';
-
-    right = right.substring(0, p.cols);
-    left = left.substring(0, p.cols - right.length);
-
-    p.move(1, p.rows);
-    p.bg('black');
-
-    p.write(left);
-
-    p.write(Array(p.cols - left.length - right.length + 1).join(' '));
-
-    p.write(right, 'cyan fg');
-
-    p.bg('!black');
-  }
-
-  var content = '';
-  function parseContent(content) {
-    var _c = content.split('\n')
-      , limit = p.cols - (longest + 5 + 1)
-      , c = [];
-
-    _c.forEach(function(line) {
-      while (line.length > limit) {
-        c.push(line.substring(0, limit - 1) + '-');
-        line = line.substring(limit - 1);
-      }
-      c.push(line);
-    });
-
-    return c;
-  }
-
-  function setContent(text) {
-    p.coffset = 0;
-    content = text;
-    state('content');
-    renderList();
-  }
-
-  var inputcb;
-  function setInput(text, cb) {
-    p.coffset = 0;
-    content = text;
-    inputcb = cb;
-    state('input');
-    renderList();
-  }
-
-  function setChoice(text, cb) {
-    p.coffset = 0;
-    content = text;
-    inputcb = cb;
-    state('choice');
-    renderList();
-  }
-
-  var loadsym = ['|', '/', '-', '\\']
-    , load;
-
-  function startLoading() {
-    var i = 0;
-    load = setInterval(function() {
-      echo('Loading... ' + loadsym[i], true);
-      if (++i === loadsym.length) i = 0;
-    }, 300);
-  }
-
-  function stopLoading() {
-    if (load) {
-      clearInterval(load);
-      load = null;
-    }
-    echo('');
-  }
-
-  function executeRight(option) {
-    if (option === 'deploy') {
-      return setInput('Deploy from where? \ne.g. ~/node_modules/foobar.', function(input) {
-        if (!input) return;
-        input = input.replace(/^~/, process.env.HOME);
-        startLoading();
-        setTimeout(function() {
-          stopLoading();
-          echo(input);
-        }, 5000);
-      });
-    }
-    if (option === 'destroy') {
-      var msg = 'Deleting application: '
-        + apps[apps.offset + apps.index - 1].name + '.'
-        + '\nAre you sure? Type `yes` to continue.';
-      return setInput(msg, function(input) {
-        if (!input) return;
-        startLoading();
-        setTimeout(function() {
-          stopLoading();
-          echo(input);
-        }, 5000);
-      });
-    }
-    if (option === 'setdrones') {
-      var msg = 'Drones for application: '
-        + apps[apps.offset + apps.index - 1].name + '.'
-        + '\nCurrent drones: N/A.'
-        + '\nEnter the number of drones desired:';
-      return setInput(msg, function(input) {
-        if (!input) return;
-        startLoading();
-        setTimeout(function() {
-          stopLoading();
-          echo(input);
-        }, 5000);
-      });
-    }
-    if (option === 'view') {
-      var name = apps[apps.offset + apps.index - 1].name;
-      return jitsu.apps.view(name, function(err, app) {
-        return err
-          ? setContent(err.stack)
-          : setContent(inspect(app));
-      });
-    }
-    if (option === 'snapshots') {
-      state('right');
-      return jitsu.snapshots.list(apps[apps.offset + apps.index - 1].name, function(err, snapshots) {
-        if (err) return;
-        snapshots = snapshots.map(function(data) {
-          return data.id;
-        });
-        snapshots.__proto__ = right;
-        snapshots.old = right;
-        right = snapshots;
-        right.offset = 0;
-        right.index = 1;
-        return renderList();
-      });
-    }
-  }
-
-  function renderList(from) {
-    if (state() === 'content' || state() === 'input' || state() === 'choice') {
-      var c = parseContent(content);
-
-      if (p.coffset > c.length - (p.rows - p.statusbar)) {
-        p.coffset = c.length - (p.rows - p.statusbar);
-      }
-      if (p.coffset < 0) {
-        p.coffset = 0;
-      }
-
-      var i = 0
-        , l = p.rows - p.statusbar;
-
-      for (; i < l; i++) {
-        p.move(longest + 5, i + 1);
-        p.eraseInLine('right');
-      }
-
-      var visible = c.slice(p.coffset, p.coffset + p.rows - p.statusbar);
-      visible.forEach(function(line, i) {
-        p.move(longest + 5, i + 1);
-        p.write(line);
-        p.eraseInLine('right');
-      });
-
-      if (state() === 'input') {
-        var y = Math.min(p.rows - p.statusbar, visible.length + 1) + 1;
-        p.move(longest + 5, y);
-        p.write(Array(p.cols - (longest + 6) + 1).join(' '), 'black bg');
-        p.move(longest + 5, y + 2);
-        p.write('   Okay   ', 'black bg');
-        p.write(' ');
-        p.write('   Cancel   ', 'black bg');
-        p.move(longest + 5, y);
-        p.showCursor();
-      }
-
-      if (state() === 'choice') {
-        var y = Math.min(p.rows - p.statusbar, visible.length + 1) + 1;
-        p.move(longest + 5, y);
-        p.write('   Okay   ', 'black bg');
-        p.write(' ');
-        p.write('   Cancel   ', 'black bg');
-      }
-
-      return;
-    }
-
-    from = from || 1;
-    p.move(1, from);
-
-    var visible = apps.slice(apps.offset + (from - 1), apps.offset + p.rows - p.statusbar);
-
-    visible.forEach(function(app, i) {
-      var j = i + (from - 1);
-
-      p.write(' ');
-
-      // name
-      p.write(app.name, j === apps.index - 1 ? 'blue bg' : 'red fg');
-
-      var left = longest - app.name.length;
-
-      while (left > 0) {
-        p.write(' ');
-        left--;
-      }
-
-      // separator
-      p.write(' │ ');
-
-      if (state() === 'top') {
-        // state
-        p.write(app.state + '');
-
-        // separator
-        p.write(' │ ');
-
-        // subdomain
-        p.write(app.subdomain + '');
-
-        // separator
-        p.write(' │ ');
-
-        // drones
-        p.write(app.drones + '/' + app.maxDrones);
-
-        // separator
-        p.write(' │ ');
-
-        // snapshot
-        p.write(app.active.filename);
-      }
-
-      p.eraseInLine('right');
-
-      if (i !== visible.length - 1) {
-        p.feed();
-      }
-    });
-
-    // This is needed for searching and getting
-    // an item at index 1 even when there aren't
-    // enough items to fill the entire screen.
-    var i = from + visible.length - 1;
-    while (i++ < p.rows - p.statusbar) {
-      p.move(1, i);
-      p.eraseInLine('right');
-      p.write(Array(longest + 3).join(' ') + '│');
-    }
-
-    if (state() === 'right') {
-      var visible = right.slice(right.offset + (from - 1), right.offset + p.rows - p.statusbar);
-      visible.forEach(function(option, i) {
-        i++;
-        p.move(longest + 5, i);
-        p.write(option, right.index === i  ? 'blue bg' : null);
-      });
-    }
-
-    updateStatusbar();
-
-    p.move(1, apps.index);
-  }
-
-  p.on('keypress', onkey);
-
-  p.on('resize', function() {
-    if (apps.index > p.rows - p.statusbar) {
-      apps.index = p.rows - p.statusbar;
-    }
-    renderList();
-  });
-
-  p.clear();
-  p.hideCursor();
-  renderList();
 }
 
 function parseArg(argv) {
