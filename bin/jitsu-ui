@@ -151,7 +151,7 @@ require = function(name) {
   };
 
   jitsu.config.get = function(name) {
-    if (name === 'username') {
+    if (name === 'username' || name === 'password') {
       return 'foobar';
     }
   };
@@ -722,7 +722,7 @@ context.start = function(opt) {
 
 context.focus = function(target) {
   return !target
-    ? this.history[this.history.length-1]
+    ? this.history[this.history.length-1] || this.left
     : this.history.push(target);
 };
 
@@ -776,29 +776,26 @@ context.mouse = function(key) {
   }
 
   if (key.action === 'mousedown' && key.button === 'left') {
-    if (this.focus() === this.right) {
-      if (key.x >= this.right.x) {
-        return this.right.index === key.y
+    var focus = this.focus();
+
+    if (focus instanceof List) {
+      if (key.x >= focus.x) {
+        return focus.index === key.y
           ? this.key(null, { name: 'enter' })
-          : this.scroll(key.y - this.right.index);
+          : this.scroll(key.y - focus.index);
       } else {
-        this.focus(this.left);
+        this.focusPrevious();
         this.render();
+        return this.mouse(key);
       }
     }
 
-    if (this.focus() === this.dialog || this.focus() === this.input) {
+    if (focus === this.dialog || focus === this.input) {
       if (key.x >= this.dialog.x && key.x <= this.dialog.x + 10) {
         return this.key(null, { name: 'enter' });
       } else if (key.x >= this.dialog.x + 11 && key.x <= this.dialog.x + 21) {
         return this.key(null, { name: 'escape' });
       }
-    }
-
-    if (this.focus() === this.left) {
-      return this.left.index === key.y
-        ? this.key(null, { name: 'enter' })
-        : this.scroll(key.y - this.left.index);
     }
 
     return;
@@ -1329,6 +1326,13 @@ function start(opt, callback) {
   program.on('resize', context.resize.bind(context));
 
   context.render();
+
+  if (!jitsu.config.get('username')) {
+    return context.setInput('Login with your username/password.', function(input) {
+      context.focusPrevious();
+      context.render();
+    });
+  }
 }
 
 function parseArg(argv) {
