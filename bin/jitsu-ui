@@ -20,6 +20,8 @@ require = function(name) {
     setup: function(c) { c(); },
     apps: {},
     snapshots: {},
+    env: {},
+    logs: {},
     config: {}
   };
 
@@ -104,6 +106,13 @@ require = function(name) {
     });
   };
 
+  jitsu.env.list = function(name, callback) {
+    return callback(null, {
+      SUBDOMAIN: 'fuubar3.my-app2.fuubar3',
+      NODE_ENV: 'production'
+    });
+  };
+
   jitsu.snapshots.list = function(name, callback) {
      return callback(null, [
        {
@@ -119,6 +128,26 @@ require = function(name) {
          "filename": name + "-0.0.1.tgz"
        }
      ]);
+  };
+
+  jitsu.logs.byApp = function(app, amount, callback) {
+    var results = {
+      data: [
+        {
+          timestamp: new Date,
+          json: {
+            message: 'log message here'
+          }
+        },
+        {
+          timestamp: new Date,
+          json: {
+            message: 'log message here again'
+          }
+        }
+      ]
+    };
+    return callback(null, results);
   };
 
   jitsu.config.get = function(name) {
@@ -613,31 +642,70 @@ context.start = function(opt) {
       return;
     }
 
+    if (!this.longestState) {
+      this.longestState = 0;
+      this.data.forEach(function(app) {
+        if (app.state.length > this.longestState) {
+          this.longestState = app.state.length;
+        }
+      }, this);
+    }
+
+    if (!this.longestSubdomain) {
+      this.longestSubdomain = 0;
+      this.data.forEach(function(app) {
+        if (app.subdomain.length > this.longestSubdomain) {
+          this.longestSubdomain = app.subdomain.length;
+        }
+      }, this);
+    }
+
+    if (!this.longestDrones) {
+      this.longestDrones = 0;
+      this.data.forEach(function(app) {
+        var drones = app.drones + '/' + app.maxDrones;
+        if (drones.length > this.longestDrones) {
+          this.longestDrones = drones.length;
+        }
+      }, this);
+    }
+
     this.visible().forEach(function(app, i) {
       p.move(this.x + this.padding * 2 + this.width(), this.y + i);
       // separator
       p.write('│ ');
 
       // state
-      p.write(app.state + '');
+      p.write(app.state + '', app.state === 'started' ? 'green fg' : 'black fg');
+      j = this.longestState - app.state.length;
+      while (j--) p.write(' ');
 
       // separator
-      p.write(' │ ');
+      //p.write(' │ ');
+      p.write('   ');
 
       // subdomain
-      p.write(app.subdomain + '');
+      p.write(app.subdomain + '', 'black fg');
+      j = this.longestSubdomain - app.subdomain.length;
+      while (j--) p.write(' ');
 
       // separator
-      p.write(' │ ');
+      p.write('   ');
 
       // drones
-      p.write(app.drones + '/' + app.maxDrones);
+      var drones = app.drones + '/' + app.maxDrones;
+      p.write(drones, 'yellow fg');
+      j = this.longestDrones - drones.length;
+      while (j--) p.write(' ');
 
       // separator
-      p.write(' │ ');
+      p.write('   ');
 
       // snapshot
       p.write(app.active.filename);
+
+      // clear
+      p.el();
     }, this);
 
     return ret;
@@ -1051,6 +1119,30 @@ context.stopLoading = function() {
 context.executeRight = function(option) {
   var self = this;
 
+  if (option === 'start') {
+    self.startLoading();
+    return setTimeout(function() {
+      self.stopLoading();
+      self.echo('Done starting.');
+    }, 5000);
+  }
+
+  if (option === 'restart') {
+    self.startLoading();
+    return setTimeout(function() {
+      self.stopLoading();
+      self.echo('Done restarting.');
+    }, 5000);
+  }
+
+  if (option === 'stop') {
+    self.startLoading();
+    return setTimeout(function() {
+      self.stopLoading();
+      self.echo('Done stopping.');
+    }, 5000);
+  }
+
   if (option === 'deploy') {
     return this.setInput('Deploy from where? \ne.g. ~/node_modules/foobar.', function(input) {
       if (!input) return;
@@ -1144,6 +1236,80 @@ context.executeRight = function(option) {
       });
 
       self.focus(self.snapshots);
+
+      return self.render();
+    });
+  }
+
+  if (option === 'env') {
+    return jitsu.env.list(this.left.selected().name, function(err, env) {
+      if (err) return;
+
+      var data = [];
+
+      Object.keys(env).forEach(function(key) {
+        data.push({
+          key: key,
+          val: env[key],
+          text: key + ': ' + env[key]
+        });
+      });
+
+      self.env = new List({
+        context: self.right.context,
+        data: data,
+        x: self.right.x,
+        y: self.right.y,
+        width: self.right.width(),
+        padding: self.right.padding,
+        bottom: self.right.bottom,
+        key: 'text',
+        selected: self.right._selected,
+        unselected: self.right.unselected
+      });
+
+      self.focus(self.env);
+
+      return self.render();
+    });
+  }
+
+  if (option === 'logs') {
+    return jitsu.logs.byApp(this.left.selected().name, 20, function(err, results) {
+      if (err) return;
+
+      var data = [];
+
+      function sort(first, second) {
+        return new Date(first.timestamp) - new Date(second.timestamp);
+      }
+
+      results.data.sort(sort).forEach(function(log) {
+        if (log.json && log.json.message != null) {
+          log.json.message.split('\n').forEach(function (line) {
+            data.push({
+              date: new Date(log.timestamp),
+              message: line,
+              text: new Date(log.timestamp).toUTCString() + ' - ' + line
+            });
+          });
+        }
+      });
+
+      self.logs = new List({
+        context: self.right.context,
+        data: data,
+        x: self.right.x,
+        y: self.right.y,
+        width: self.right.width(),
+        padding: self.right.padding,
+        bottom: self.right.bottom,
+        key: 'text',
+        selected: self.right._selected,
+        unselected: self.right.unselected
+      });
+
+      self.focus(self.logs);
 
       return self.render();
     });
