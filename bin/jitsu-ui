@@ -372,6 +372,7 @@ Input.prototype.render = function() {
   p.write('   Cancel   ', 'black bg');
   p.move(this.x, y);
   p.showCursor();
+  return ret;
 };
 
 /**
@@ -395,6 +396,7 @@ Dialog.prototype.render = function() {
   p.write('   Okay   ', 'black bg');
   p.write(' ');
   p.write('   Cancel   ', 'black bg');
+  return ret;
 };
 
 /**
@@ -537,8 +539,6 @@ context.scroll = function(i) {
 context.render = function() {
   var p = this.program;
 
-  this.focus().render();
-
   var longest = this.longest;
   var out = Array(longest + 2 + 1).join('─');
   out += '┴';
@@ -547,6 +547,8 @@ context.render = function() {
   p.write(out);
 
   this.statusbar.refresh();
+
+  this.focus().render();
 };
 
 context.refresh = function() {
@@ -607,8 +609,8 @@ context.key = function(ch, key) {
     p._needsClear = false;
     p.move(1, p.rows);
     p.eraseInLine('right');
-    //this.statusbar.render();
-    this.render();
+    //this.render();
+    this.refresh();
   }
 
   if (key.name === 'mouse') {
@@ -617,9 +619,11 @@ context.key = function(ch, key) {
 
   if (this.focus() === this.input) {
     this.input._text = this.input._text || '';
+
     if (key.name === 'backspace' && !this.input._text) {
-      return this.key(null, {name:'escape'});
+      return this.key(null, { name:'escape' });
     }
+
     if (key.name === 'backspace') {
       this.input._text = this.input._text.slice(0, -1);
       p.back();
@@ -627,31 +631,34 @@ context.key = function(ch, key) {
       p.back();
       return;
     }
+
     if (key.name === 'enter') {
-      states.pop();
+      this.lastFocus();
       p.hideCursor();
       if (this.input.callback) {
         this.input.callback(this.input._text);
-        this.input._text = '';
         this.input.callback = null;
       }
-      //return this.focus().render();
+      this.input._text = '';
       return this.render();
     }
+
     if (key.name === 'escape') {
-      this.focus(this.right);
+      this.lastFocus();
       p.hideCursor();
       if (this.input.callback) {
         this.input.callback();
         this.input.callback = null;
       }
-      //return this.focus().render();
+      this.input._text = '';
       return this.render();
     }
+
     if (ch) {
       this.input._text += ch;
       p.write(ch, 'black bg');
     }
+
     return;
   }
 
@@ -784,7 +791,6 @@ context.key = function(ch, key) {
       return this.executeRight(this.right.selected());
     }
 
-    //return this.focus.render();
     return this.render();
   }
 
@@ -830,7 +836,6 @@ context.setContent = function(text) {
   this.content.text = text;
   this.content.parse(text);
   this.focus(this.content);
-  //this.focus().render();
   this.render();
 };
 
@@ -839,7 +844,6 @@ context.setInput = function(text, cb) {
   this.input.parse(text);
   this.input.callback = cb;
   this.focus(this.input);
-  //this.focus().render();
   this.render();
 };
 
@@ -848,7 +852,6 @@ context.setDialog = function(text, cb) {
   this.dialog.parse(text);
   this.dialog.callback = cb;
   this.focus(this.dialog);
-  //this.focus().render();
   this.render();
 };
 
@@ -863,7 +866,7 @@ context.startLoading = function() {
 };
 
 context.stopLoading = function() {
-  if (load) {
+  if (this.load) {
     clearInterval(this.load);
     delete this.load;
   }
