@@ -692,7 +692,8 @@ context.start = function(opt) {
       }, this);
     }
 
-    this.visible().forEach(function(app, i) {
+    var visible = this.visible();
+    visible.forEach(function(app, i) {
       p.move(this.x + this.padding * 2 + this.width(), this.y + i);
       // separator
       p.write('│ ');
@@ -762,7 +763,7 @@ context.render = function() {
   var longest = this.longest;
   var out = Array(longest + 2 + 1).join('─');
   out += '┴';
-  out += Array(p.cols - 10 + 1).join('─');
+  out += Array(p.cols - (longest + 3) + 1).join('─');
   p.move(1, p.rows - 1);
   p.write(out);
 
@@ -776,13 +777,41 @@ context.refresh = function() {
 };
 
 context.resize = function() {
-  var p = this.program;
-  if (this.left.index > p.rows - 2) {
-    this.left.index = p.rows - 2;
+  var p = this.program
+    , focus = this.focus();
+
+  if (this.left.index > this.left.ym()) {
+    this.left.index = this.left.ym();
   }
-  if (this.right.index > p.rows - 2) {
-    this.right.index = p.rows - 2;
+
+  if (focus.index > focus.ym()) {
+    focus.index = focus.ym();
   }
+
+  var end = this.left.x + this.left.padding * 2 + this.left.width()
+    , i = 0;
+
+  while (i++ < this.left.ym()) {
+    p.move(this.left.x + end - 1, i);
+    p.write('│');
+  }
+
+  // This is needed for searching and getting
+  // an item at index 1 even when there aren't
+  // enough items to fill the entire screen.
+  var visible = this.left.visible()
+    , end = this.left.x + this.left.padding * 2 + this.left.width()
+    , i = visible.length
+    , j;
+
+  while (i++ < this.left.ym()) {
+    p.move(this.left.x, i);
+    j = end - this.left.x;
+    while (j--) p.write(' ');
+    p.write('│');
+  }
+
+  this.left.render();
   this.render();
 };
 
