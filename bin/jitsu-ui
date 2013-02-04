@@ -537,6 +537,7 @@ JitsuContext.prototype.__proto__ = Context.prototype;
 var context = JitsuContext.prototype;
 
 context.start = function(opt) {
+  var self = this;
   var p = this.program = opt.program;
 
   var longest = 0;
@@ -604,11 +605,14 @@ context.start = function(opt) {
     y: 1
   });
 
-  var self = this;
-  var _render = this.left.render;
+  var render = this.left.render;
   this.left.render = function() {
-    _render.call(this);
-    if (self.focus() !== this) return;
+    var ret = render.apply(this, arguments);
+
+    if (self.focus() !== self.left) {
+      return;
+    }
+
     this.visible().forEach(function(app, i) {
       p.move(this.x + this.padding * 2 + this.width(), this.y + i);
       // separator
@@ -635,6 +639,8 @@ context.start = function(opt) {
       // snapshot
       p.write(app.active.filename);
     }, this);
+
+    return ret;
   };
 
   this.statusbar.refresh = function() {
@@ -692,26 +698,27 @@ context.resize = function() {
 
 context.mouse = function(key) {
   var p = this.program;
+
   if (key.action === 'wheelup') {
     return this.key(null, { name: 'u' });
   }
+
   if (key.action === 'wheeldown') {
     return this.key(null, { name: 'd' });
   }
+
   if (key.action === 'mousedown' && key.button === 'left') {
-    if (key.y === p.rows) {
-      return this.key('/', { name: 'slash' });
-    }
     if (this.focus() === this.right) {
       if (key.x >= this.right.x) {
-        return right.index === key.y
+        return this.right.index === key.y
           ? this.key(null, { name: 'enter' })
-          : this.scroll(key.y - right.index);
+          : this.scroll(key.y - this.right.index);
       } else {
         this.focus(this.left);
         this.render();
       }
     }
+
     if (this.focus() === this.dialog || this.focus() === this.input) {
       if (key.x >= this.dialog.x && key.x <= this.dialog.x + 10) {
         return this.key(null, { name: 'enter' });
@@ -719,9 +726,45 @@ context.mouse = function(key) {
         return this.key(null, { name: 'escape' });
       }
     }
-    return this.left.index === key.y
-      ? this.key(null, { name: 'enter' })
-      : this.scroll(key.y - this.left.index);
+
+    if (this.focus() === this.left) {
+      return this.left.index === key.y
+        ? this.key(null, { name: 'enter' })
+        : this.scroll(key.y - this.left.index);
+    }
+
+    return;
+  }
+
+  // XXX Change color on hover.
+  if (0 && key.action === 'mouseup') {
+    if (this.focus() === this.dialog || this.focus() === this.input) {
+      p.saveCursor();
+      if (key.y === 6) {
+        if (key.x >= this.dialog.x && key.x <= this.dialog.x + 10) {
+          p.move(this.dialog.x, 6);
+          p.write('   Okay   ', 'green bg');
+          p.move(this.dialog.x + 11, 6);
+          p.write('   Cancel   ', 'black bg');
+        } else if (key.x >= this.dialog.x + 11 && key.x <= this.dialog.x + 21) {
+          p.move(this.dialog.x, 6);
+          p.write('   Okay   ', 'black bg');
+          p.move(this.dialog.x + 11, 6);
+          p.write('   Cancel   ', 'green bg');
+        } else {
+          p.move(this.dialog.x, 6);
+          p.write('   Okay   ', 'black bg');
+          p.move(this.dialog.x + 11, 6);
+          p.write('   Cancel   ', 'black bg');
+        }
+      } else {
+        p.move(this.dialog.x, 6);
+        p.write('   Okay   ', 'black bg');
+        p.move(this.dialog.x + 11, 6);
+        p.write('   Cancel   ', 'black bg');
+      }
+      p.restoreCursor();
+    }
   }
 };
 
