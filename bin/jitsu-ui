@@ -934,6 +934,7 @@ context.key = function(ch, key) {
     if (this.focus() === this.left) {
       return this.exit();
     }
+    /*
     if (this.focus() === this.right && this.right._old) {
       // XXX Clean up!
       this.right.offset = this.right._old.offset;
@@ -942,6 +943,7 @@ context.key = function(ch, key) {
       delete this.right._old;
       return this.render();
     }
+    */
     this.focusPrevious();
     return this.render();
   }
@@ -958,6 +960,10 @@ context.key = function(ch, key) {
 
     if (this.focus() === this.right) {
       return this.executeRight(this.right.selected());
+    }
+
+    if (this.focus() === this.snapshots) {
+      return this.render();
     }
 
     return this.render();
@@ -1099,6 +1105,7 @@ context.executeRight = function(option) {
     return jitsu.snapshots.list(this.left.selected().name, function(err, snapshots) {
       if (err) return;
 
+      /*
       snapshots = snapshots.map(function(data) {
         return data.id;
       });
@@ -1112,6 +1119,31 @@ context.executeRight = function(option) {
       self.right.data = snapshots;
       self.right.offset = 0;
       self.right.index = 1;
+      */
+
+      snapshots.forEach(function(snapshot) {
+        snapshot.text = snapshot.id
+          + ' - '
+          + snapshot.filename
+          + ' - '
+          + new Date(snapshot.ctime).toUTCString();
+      });
+
+      self.snapshots = new List({
+        context: self.right.context,
+        data: snapshots,
+        x: self.right.x,
+        y: self.right.y,
+        width: self.right.width(),
+        padding: self.right.padding,
+        bottom: self.right.bottom,
+        //key: 'filename',
+        key: 'text',
+        selected: self.right._selected,
+        unselected: self.right.unselected
+      });
+
+      self.focus(self.snapshots);
 
       return self.render();
     });
