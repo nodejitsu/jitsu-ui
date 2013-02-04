@@ -11,5 +11,8 @@
   "bugs": { "url": "http://github.com/chjj/jitsu-ui/issues" },
   "keywords": ["nodejitsu", "jitsu", "tui"],
   "tags": ["nodejitsu", "jitsu", "tui"],
-  "scripts": { "test": "node test", "bench": "node test --bench" }
+  "scripts": { "test": "node test", "bench": "node test --bench" },
+  "dependencies": {
+    "blessed": "0.0.3"
+  }
 }
