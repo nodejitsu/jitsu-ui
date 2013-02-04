@@ -660,6 +660,42 @@ context.start = function(opt) {
   this.left.render = function() {
     var ret = render.apply(this, arguments);
 
+    /*var visible = this.visible();
+
+    // This is needed for searching and getting
+    // an item at index 1 even when there aren't
+    // enough items to fill the entire screen.
+    var end = this.x + this.padding * 2 + this.width()
+      , i = 0
+      , j;
+
+    while (i++ < this.ym()) {
+      if (i > visible.length) {
+        p.move(this.x, i);
+        j = end - this.x;
+        while (j--) p.write(' ');
+      } else {
+        p.move(end, i);
+      }
+      p.write('│');
+    }*/
+
+    // Redraw separator.
+    /*p.move(this.x + this.padding * 2 + this.width(), 1);
+    var i = 0;
+    while (i++ < this.ym()) {
+      p.write('│');
+      p.index();
+      p.back();
+    }*/
+
+    // Redraw separator.
+    var end = this.x + this.padding * 2 + this.width(), i = 0;
+    while (i++ < this.ym()) {
+      p.move(end, i);
+      p.write('│');
+    }
+
     if (self.focus() !== self.left) {
       return;
     }
@@ -704,7 +740,6 @@ context.start = function(opt) {
       while (j--) p.write(' ');
 
       // separator
-      //p.write(' │ ');
       p.write('   ');
 
       // subdomain
@@ -786,29 +821,6 @@ context.resize = function() {
 
   if (focus.index > focus.ym()) {
     focus.index = focus.ym();
-  }
-
-  var end = this.left.x + this.left.padding * 2 + this.left.width()
-    , i = 0;
-
-  while (i++ < this.left.ym()) {
-    p.move(this.left.x + end - 1, i);
-    p.write('│');
-  }
-
-  // This is needed for searching and getting
-  // an item at index 1 even when there aren't
-  // enough items to fill the entire screen.
-  var visible = this.left.visible()
-    , end = this.left.x + this.left.padding * 2 + this.left.width()
-    , i = visible.length
-    , j;
-
-  while (i++ < this.left.ym()) {
-    p.move(this.left.x, i);
-    j = end - this.left.x;
-    while (j--) p.write(' ');
-    p.write('│');
   }
 
   this.left.render();
@@ -1384,10 +1396,7 @@ function start(opt, callback) {
     apps: opt.apps,
     right: [
       'deploy',
-      //'list',
-      //'create',
       'view',
-      //'update',
       'destroy',
       'start',
       'restart',
@@ -1433,28 +1442,6 @@ function start(opt, callback) {
       });
     });
   }
-
-/*
-  if (!jitsu.config.get('username')) {
-    return context.setInput('Type your username', function(input) {
-      jitsu.config.set('username', input);
-      return context.setInput('Type your password', function(input) {
-        jitsu.config.set('password', input);
-        return jitsu.auth(function (err) {
-          if (err) {
-            return context.error(err.message);
-          }
-          return jitsu.config.save(function (err) {
-            if (err) {
-              return context.error(err.message);
-            }
-            return callback();
-          });
-        });
-      });
-    });
-  }
-*/
 }
 
 function parseArg(argv) {
