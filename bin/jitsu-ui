@@ -113,8 +113,8 @@ require = function(name) {
     });
   };
 
-  jitsu.env.set = function(app, key, value, callback) {
-    return jitsu.env.list(app, callback);
+  jitsu.apps.update = function(app, value, callback) {
+    return callback();
   };
 
   jitsu.snapshots.list = function(name, callback) {
@@ -132,6 +132,12 @@ require = function(name) {
          "filename": name + "-0.0.1.tgz"
        }
      ]);
+  };
+
+  jitsu.snapshots.activate = function(app, id, callback) {
+     setTimeout(function() {
+       return callback();
+     }, 3000);
   };
 
   jitsu.logs.byApp = function(app, amount, callback) {
@@ -838,7 +844,8 @@ context.mouse = function(key) {
 };
 
 context.key = function(ch, key) {
-  var context = this
+  var self = this
+    , context = this
     , p = this.program;
 
   if (p._needsClear) {
@@ -1022,12 +1029,18 @@ context.key = function(ch, key) {
     }
 
     if (this.focus() === this.snapshots) {
-      return this.render();
+      this.startLoading();
+      return jitsu.snapshots.activate(this.left.selected().name, this.snapshots.selected().id, function() {
+        self.stopLoading();
+        self.echo('Activated.');
+      });
     }
 
     if (this.focus() === this.env) {
       return this.setInput('Editing env: ' + this.env.selected().key, function(input) {
-        return jitsu.env.set(context.left.selected().name, context.env.selected().key, input, function() {
+        var data = {};
+        data[self.env.selected().key] = input;
+        return jitsu.apps.update(self.left.selected().name, data, function() {
           ;
         });
       });
