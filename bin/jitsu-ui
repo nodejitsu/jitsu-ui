@@ -113,6 +113,10 @@ require = function(name) {
     });
   };
 
+  jitsu.env.set = function(app, key, value, callback) {
+    return jitsu.env.list(app, callback);
+  };
+
   jitsu.snapshots.list = function(name, callback) {
      return callback(null, [
        {
@@ -1019,6 +1023,14 @@ context.key = function(ch, key) {
 
     if (this.focus() === this.snapshots) {
       return this.render();
+    }
+
+    if (this.focus() === this.env) {
+      return this.setInput('Editing env: ' + this.env.selected().key, function(input) {
+        return jitsu.env.set(context.left.selected().name, context.env.selected().key, input, function() {
+          ;
+        });
+      });
     }
 
     return this.render();
