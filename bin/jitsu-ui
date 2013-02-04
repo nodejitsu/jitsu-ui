@@ -669,6 +669,7 @@ context.start = function(opt) {
     var end = this.x + this.padding * 2 + this.width()
       , i = 0
       , j;
+
     while (i++ < this.ym()) {
       if (i > visible.length) {
         p.move(this.x, i);
@@ -714,7 +715,6 @@ context.start = function(opt) {
       }, this);
     }
 
-    var visible = this.visible();
     visible.forEach(function(app, i) {
       p.move(this.x + this.padding * 2 + this.width(), this.y + i);
       // separator
