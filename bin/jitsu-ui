@@ -1396,37 +1396,13 @@ function parseArg(argv) {
   while (argv.length) {
     arg = getarg();
     switch (arg) {
-      case '-r':
-      case '--repo':
-        options.repo = argv.shift();
-        break;
-      case '-s':
-      case '--status':
-        options.status = true;
-        break;
-      case '-n':
-      case '--no-status':
-        options.status = false;
-        break;
       case '-h':
       case '--help':
         return help();
       default:
-        if (!options.repo
-            && fs.existsSync(arg)
-            && fs.statSync(arg).isDirectory()) {
-          options.repo = arg;
-        } else {
-          files.push(arg);
-        }
+        files.push(arg);
         break;
     }
-  }
-
-  options.repo = path.resolve(process.cwd(), options.repo || '.');
-
-  if (options.status == null) {
-    options.status = true;
   }
 
   return options;
@@ -1441,14 +1417,15 @@ function help() {
 
 function poll(options, callback) {
   options = options || {};
-  options.repo = options.repo || opt.repo;
   callback = callback || function() {};
 
   return jitsu.apps.list(function(err, apps) {
     if (err) return callback(err);
 
     if (options.update !== false) {
-      opt.apps = apps;
+      opt.apps = opt.apps || [];
+      opt.apps.length = 0;
+      opt.apps.push.apply(opt.apps, apps);
     }
 
     return callback(null, {
