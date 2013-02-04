@@ -1156,9 +1156,14 @@ context.setDialog = function(text, cb) {
 };
 
 context.startLoading = function() {
-  var self = this;
-  var i = 0;
-  var loadsym = ['|', '/', '-', '\\'];
+  var self = this
+    , loadsym = ['|', '/', '-', '\\']
+    , i = 0;
+
+  if (this.load) {
+    this.stopLoading();
+  }
+
   this.load = setInterval(function() {
     self.echo('Loading... ' + loadsym[i], true);
     if (++i === loadsym.length) i = 0;
