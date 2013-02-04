@@ -529,7 +529,7 @@ Dialog.prototype.render = function() {
 
 function JitsuContext(program) {
   Context.call(this, program);
-  this.focusStack = [];
+  this.history = [];
 }
 
 JitsuContext.prototype.__proto__ = Context.prototype;
@@ -648,12 +648,12 @@ context.start = function(opt) {
 
 context.focus = function(target) {
   return !target
-    ? this.focusStack[this.focusStack.length-1]
-    : this.focusStack.push(target);
+    ? this.history[this.history.length-1]
+    : this.history.push(target);
 };
 
-context.lastFocus = function() {
-  return this.focusStack.pop();
+context.focusPrevious = function() {
+  return this.history.pop();
 };
 
 context.scroll = function(i) {
@@ -757,7 +757,7 @@ context.key = function(ch, key) {
     }
 
     if (key.name === 'enter') {
-      this.lastFocus();
+      this.focusPrevious();
       p.hideCursor();
       if (this.input.callback) {
         this.input.callback(this.input._text);
@@ -768,7 +768,7 @@ context.key = function(ch, key) {
     }
 
     if (key.name === 'escape') {
-      this.lastFocus();
+      this.focusPrevious();
       p.hideCursor();
       if (this.input.callback) {
         this.input.callback();
@@ -899,7 +899,7 @@ context.key = function(ch, key) {
       delete this.right._old;
       return this.render();
     }
-    this.lastFocus();
+    this.focusPrevious();
     return this.render();
   }
 
