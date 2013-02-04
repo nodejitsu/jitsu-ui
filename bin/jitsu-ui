@@ -160,10 +160,20 @@ require = function(name) {
     return callback(null, results);
   };
 
+  jitsu.auth = function(callback) {
+    return callback();
+  };
+
   jitsu.config.get = function(name) {
     if (name === 'username' || name === 'password') {
       return 'foobar';
     }
+  };
+
+  jitsu.config.set = function() {};
+
+  jitsu.config.save = function(callback) {
+    return callback();
   };
 
   return jitsu;
@@ -1068,16 +1078,19 @@ context.echo = function(text, noClear) {
   p.eraseInLine('right');
   p.write(text);
   p._needsClear = !noClear;
-}
+};
 
-context.exit = function() {
+context.exit = function(msg) {
   var p = this.program;
   p.disableMouse();
   p.clear();
   p.showCursor();
   p.normalBuffer();
+  if (msg) console.error(msg);
   return process.exit(0);
-}
+};
+
+context.error = context.exit;
 
 context.clearInput = function() {
   var p = this.program;
@@ -1352,12 +1365,56 @@ function start(opt, callback) {
 
   context.render();
 
-  if (!jitsu.config.get('username')) {
-    return context.setInput('Login with your username/password.', function(input) {
-      context.focusPrevious();
-      context.render();
+  function typeUsername(callback) {
+    if (jitsu.config.get('username')) return callback();
+    return context.setInput('Type your username:', callback);
+  }
+
+  function typePassword(callback) {
+    if (jitsu.config.get('password')) return callback();
+    return context.setInput('Type your password:', callback);
+  }
+
+  if (!jitsu.config.get('username') || !jitsu.config.get('password')) {
+    return typeUsername(function(input) {
+      if (input) jitsu.config.set('username', input);
+      return typePassword(function(input) {
+        if (input) jitsu.config.set('password', input);
+        return jitsu.auth(function (err) {
+          if (err) {
+            return context.error(err.message);
+          }
+          return jitsu.config.save(function (err) {
+            if (err) {
+              return context.error(err.message);
+            }
+          });
+        });
+      });
     });
   }
+
+/*
+  if (!jitsu.config.get('username')) {
+    return context.setInput('Type your username', function(input) {
+      jitsu.config.set('username', input);
+      return context.setInput('Type your password', function(input) {
+        jitsu.config.set('password', input);
+        return jitsu.auth(function (err) {
+          if (err) {
+            return context.error(err.message);
+          }
+          return jitsu.config.save(function (err) {
+            if (err) {
+              return context.error(err.message);
+            }
+            return callback();
+          });
+        });
+      });
+    });
+  }
+*/
 }
 
 function parseArg(argv) {
