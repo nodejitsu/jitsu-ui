@@ -479,8 +479,17 @@ Content.prototype.parse = function(content) {
 
   _c.forEach(function(line) {
     while (line.length > limit) {
-      c.push(line.substring(0, limit - 1) + '-');
-      line = line.substring(limit - 1);
+      var l = line.substring(0, limit - 1)
+        , m = /\x1b[\[\d;]*$/.exec(l);
+
+      if (m) {
+        l = l.slice(0, -m[0].length);
+        c.push(l + '-');
+        line = line.substring(limit - 1 - m[0].length);
+      } else {
+        c.push(l + '-');
+        line = line.substring(limit - 1);
+      }
     }
     c.push(line);
   });
