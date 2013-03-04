@@ -283,13 +283,13 @@ List.prototype.scroll = function(i) {
       this.offset = Math.max(this.ym(), data.length) - this.ym();
       this.index = Math.min(this.ym(), data.length);
     }
-    return this.render();
+    this.render();
   } else if (this.index + i < 1) {
     this.index += i;
     this.offset += this.index - 1;
     if (this.offset < 0) this.offset = 0;
     this.index = 1;
-    return this.render();
+    this.render();
   } else {
     var item;
     if (this.offset + (this.index - 1) + i > (data.length - 1)) {
@@ -307,9 +307,10 @@ List.prototype.scroll = function(i) {
     while (pa--) p.write(' ');
     p.write(item[this.key] || item, this._selected);
     p.move(this.x, this.index);
-    // XXX
-    return this.context.refresh();
   }
+
+  // XXX
+  return this.context.refresh();
 };
 
 List.prototype.render = function(from) {
