@@ -458,6 +458,19 @@ function Content(options) {
 
 Content.prototype.__proto__ = EventEmitter.prototype;
 
+// TODO: Rename x and y to left and top. Add a `right` option.
+Content.quick = function(text, x, y, bottom) {
+  var content = new Content({
+    x: x || 1,
+    y: y || 1,
+    bottom: bottom || 0,
+    //right: right || 0,
+    context: context || new Context(blessed.global || blessed()),
+    text: text || ''
+  });
+  return content.render();
+};
+
 Content.prototype.scroll = function(i) {
   this.offset += i;
   return this.render();
