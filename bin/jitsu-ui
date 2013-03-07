@@ -994,7 +994,7 @@ context.key = function(ch, key) {
     if (key.name === 'backspace') {
       if (!p._enter.data.length) {
         p.eraseInLine('left');
-        return this.key(null, {name:'escape'});
+        return this.key(null, { name: 'escape' });
       }
       p._enter.data = p._enter.data.slice(0, -1);
       p.back();
