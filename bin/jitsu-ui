@@ -1162,18 +1162,18 @@ context.setContent = function(text) {
   this.render();
 };
 
-context.setInput = function(text, cb) {
+context.setInput = function(text, callback) {
   this.input.offset = 0;
   this.input.parse(text);
-  this.input.callback = cb;
+  this.input.callback = callback;
   this.focus(this.input);
   this.render();
 };
 
-context.setDialog = function(text, cb) {
+context.setDialog = function(text, callback) {
   this.dialog.offset = 0;
   this.dialog.parse(text);
-  this.dialog.callback = cb;
+  this.dialog.callback = callback;
   this.focus(this.dialog);
   this.render();
 };
@@ -1187,6 +1187,9 @@ context.startLoading = function() {
     this.stopLoading();
   }
 
+  this.statusbar._refresh = this.statusbar.refresh;
+  this.statusbar.refresh = function() {};
+
   this.load = setInterval(function() {
     self.echo('Loading... ' + loadsym[i], true);
     if (++i === loadsym.length) i = 0;
@@ -1198,7 +1201,14 @@ context.stopLoading = function() {
     clearInterval(this.load);
     delete this.load;
   }
-  this.echo('');
+
+  if (this.statusbar._refresh) {
+    this.statusbar.refresh = this.statusbar._refresh;
+    delete this.statusbar._refresh;
+  }
+
+  this.refresh();
+  //this.echo('');
 };
 
 context.executeRight = function(option) {
@@ -1401,7 +1411,7 @@ function start(opt, callback) {
 
   process.on('uncaughtException', function(err) {
     err = err || '';
-    err = err.message || err;
+    err = err.stack || err.message || err;
     context.error(err + '');
   });
 
