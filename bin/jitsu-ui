@@ -1239,7 +1239,8 @@ context.executeRight = function(option) {
   }
 
   if (option === 'deploy') {
-    return this.setInput('Deploy from where? \ne.g. ~/node_modules/foobar.', function(input) {
+    var msg = 'Deploy from where? \ne.g. ~/node_modules/foobar.';
+    return this.setInput(msg, function(input) {
       if (!input) return;
       input = input.replace(/^~/, process.env.HOME);
       self.startLoading();
