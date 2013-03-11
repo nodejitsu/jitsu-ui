@@ -562,14 +562,21 @@ Input.prototype.render = function() {
   var ret = this._render();
   var visible = this.visible();
   var y = Math.min(this.ym(), visible.length + 1) + 1;
+
   p.move(this.x, y);
-  p.write(Array(p.cols - (this.x + 1) + 1).join(' '), 'black bg');
+  if (this._text.length) {
+    p.write(this._text, 'black bg');
+  }
+  p.write(
+    Array(p.cols - (this.x + 1) - this._text.length + 1).join(' '),
+    'black bg');
   p.move(this.x, y + 2);
   p.write('   Okay   ', 'black bg');
   p.write(' ');
   p.write('   Cancel   ', 'black bg');
-  p.move(this.x, y);
+  p.move(this.x + this._text.length, y);
   p.showCursor();
+
   return ret;
 };
 
@@ -1162,10 +1169,15 @@ context.setContent = function(text) {
   this.render();
 };
 
-context.setInput = function(text, callback) {
+context.setInput = function(text, def, callback) {
+  if (arguments.length === 2) {
+    callback = def;
+    def = '';
+  }
   this.input.offset = 0;
   this.input.parse(text);
   this.input.callback = callback;
+  this.input._text = def;
   this.focus(this.input);
   this.render();
 };
@@ -1239,8 +1251,8 @@ context.executeRight = function(option) {
   }
 
   if (option === 'deploy') {
-    var msg = 'Deploy from where? \ne.g. ~/node_modules/foobar.';
-    return this.setInput(msg, function(input) {
+    var msg = 'Deploy from where?\ne.g. ~/node_modules/foobar.';
+    return this.setInput(msg, process.cwd(), function(input) {
       if (!input) return;
       input = input.replace(/^~/, process.env.HOME);
       self.startLoading();
