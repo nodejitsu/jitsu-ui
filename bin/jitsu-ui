@@ -1106,14 +1106,20 @@ context.key = function(ch, key) {
     }
 
     if (this.focus() === this.env) {
-      var name = this.env.selected().key;
-      return this.setInput('Editing env: ' + name, function(input) {
-        var data = {};
-        data[self.env.selected().key] = input;
-        self.startLoading();
-        return jitsu.apps.update(self.left.selected().name, data, function() {
-          self.stopLoading();
-          self.echo('Saved variable: ' + name);
+      var name = this.left.selected().name;
+      return jitsu.apps.view(name, function(err, app) {
+        app = app || { env: {} };
+        var key = self.env.selected().key;
+        var val = app.env[self.env.selected().key] || '';
+        return self.setInput('Editing env: ' + key, val, function(input) {
+          if (input == null) return;
+          var data = {};
+          data[key] = input === '' ? null : input;
+          self.startLoading();
+          return jitsu.apps.update(name, data, function() {
+            self.stopLoading();
+            self.echo('Saved variable: ' + key);
+          });
         });
       });
     }
