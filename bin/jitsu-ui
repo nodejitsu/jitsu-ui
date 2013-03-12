@@ -1277,7 +1277,7 @@ context.executeRight = function(option) {
     });
   }
 
-  if (option === 'setdrones') {
+  if (option === '_setdrones') {
     var msg = 'Drones for application: '
       + this.left.selected().name + '.'
       + '\nCurrent drones: N/A.'
@@ -1289,6 +1289,24 @@ context.executeRight = function(option) {
         self.stopLoading();
         self.echo(input);
       }, 5000);
+    });
+  }
+
+  if (option === 'setdrones') {
+    var name = this.left.selected().name;
+    return jitsu.apps.view(name, function(err, app) {
+      var msg = 'Drones for application: '
+        + self.left.selected().name + '.'
+        + '\nCurrent drones: ' + app.drones + '.'
+        + '\nEnter the number of drones desired:';
+      return self.setInput(msg, app.drones + '', function(input) {
+        if (!input) return;
+        self.startLoading();
+        setTimeout(function() {
+          self.stopLoading();
+          self.echo(input);
+        }, 5000);
+      });
     });
   }
 
