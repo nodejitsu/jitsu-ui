@@ -197,6 +197,48 @@ var child_process = require('child_process')
   , jitsu = require('jitsu');
 
 /**
+ * Jitsu Cache
+ */
+
+jitsu._cache = {};
+
+jitsu._collectGarbage = function() {
+  if (this._gc) {
+    clearTimeout(this._gc);
+    delete this._gc;
+  }
+
+  this._gc = setTimeout(function() {
+    jitsu._cache = {};
+  }, 5 * 1000);
+
+  this._gc.unref();
+
+  return this._gc;
+};
+
+jitsu.apps._view = jitsu.apps.view;
+jitsu.apps.view = function() {
+  var args = Array.prototype.slice.call(arguments)
+    , callback = args.pop()
+    , hash = JSON.stringify(args);
+
+  if (jitsu._cache[hash]) {
+    return callback.apply(null, jitsu._cache[hash]);
+  }
+
+  jitsu._collectGarbage();
+
+  args.push(function() {
+    jitsu._collectGarbage();
+    jitsu._cache[hash] = Array.prototype.slice.call(arguments);
+    return callback.apply(null, arguments);
+  });
+
+  return jitsu.apps._view.apply(jitsu.apps, args);
+};
+
+/**
  * Context
  */
 
