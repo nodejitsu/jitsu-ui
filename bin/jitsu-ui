@@ -1301,6 +1301,7 @@ context.executeRight = function(option) {
   if (option === 'setdrones') {
     var name = this.left.selected().name;
     return jitsu.apps.view(name, function(err, app) {
+      app = app || { drones: '0' };
       var msg = 'Drones for application: '
         + self.left.selected().name + '.'
         + '\nCurrent drones: ' + app.drones + '.'
