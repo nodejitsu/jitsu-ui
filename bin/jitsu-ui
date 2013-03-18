@@ -224,14 +224,16 @@ jitsu.apps.view = function() {
     , hash = JSON.stringify(args);
 
   if (jitsu._cache[hash]) {
-    return callback.apply(null, jitsu._cache[hash]);
+    return callback(null, jitsu._cache[hash]);
   }
 
   jitsu._collectGarbage();
 
-  args.push(function() {
+  args.push(function(err, result) {
     jitsu._collectGarbage();
-    jitsu._cache[hash] = Array.prototype.slice.call(arguments);
+    if (result) {
+      jitsu._cache[hash] = result;
+    }
     return callback.apply(null, arguments);
   });
 
