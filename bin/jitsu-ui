@@ -212,7 +212,9 @@ jitsu._collectGarbage = function() {
     jitsu._cache = {};
   }, 5 * 1000);
 
-  this._gc.unref();
+  if (this._gc.unref) {
+    this._gc.unref();
+  }
 
   return this._gc;
 };
