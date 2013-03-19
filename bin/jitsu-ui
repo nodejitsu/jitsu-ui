@@ -242,6 +242,34 @@ jitsu.apps.view = function() {
   return jitsu.apps._view.apply(jitsu.apps, args);
 };
 
+// ['Users', 'Apps', 'Snapshots', 'Databases', 'Logs', 'Tokens']
+// nodejitsu-api/node.js/lib/client/client.js
+
+var Client = require('jitsu/node_modules/nodejitsu-api').Client;
+
+Client.prototype._request = Client.prototype.request;
+Client.prototype.request = function() {
+  var args = Array.prototype.slice.call(arguments)
+    , callback = args.pop()
+    , hash = JSON.stringify(args);
+
+  if (jitsu._cache[hash]) {
+    return callback(null, jitsu._cache[hash]);
+  }
+
+  jitsu._collectGarbage();
+
+  args.push(function(err, result) {
+    jitsu._collectGarbage();
+    if (result) {
+      jitsu._cache[hash] = result;
+    }
+    return callback.apply(null, arguments);
+  });
+
+  return this._request.apply(this, args);
+};
+
 /**
  * Context
  */
