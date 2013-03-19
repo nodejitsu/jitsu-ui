@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * jitsu-blessed
+ * jitsu-ui
  */
 
-process.title = 'jitsu';
+process.title = 'jitsu-ui';
 
 /**
  * Debugging
