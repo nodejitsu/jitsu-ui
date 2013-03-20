@@ -1005,7 +1005,7 @@ context.key = function(ch, key) {
       this.focusPrevious();
       p.hideCursor();
       if (this.input.callback) {
-        this.input.callback();
+        this.input.callback(null);
         this.input.callback = null;
       }
       this.input._text = '';
@@ -1229,7 +1229,7 @@ context.setInput = function(text, def, callback) {
   this.input.offset = 0;
   this.input.parse(text);
   this.input.callback = callback;
-  this.input._text = def;
+  this.input._text = def + '';
   this.focus(this.input);
   this.render();
 };
@@ -1353,7 +1353,7 @@ context.executeRight = function(option) {
   if (option === 'setdrones') {
     var name = this.left.selected().name;
     return jitsu.apps.view(name, function(err, app) {
-      app = app || { drones: '0' };
+      app = app || { drones: 0 };
       var msg = 'Drones for application: '
         + self.left.selected().name + '.'
         + '\nCurrent drones: ' + app.drones + '.'
