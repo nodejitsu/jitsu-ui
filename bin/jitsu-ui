@@ -661,9 +661,7 @@ function JitsuContext(program) {
 
 JitsuContext.prototype.__proto__ = Context.prototype;
 
-var context = JitsuContext.prototype;
-
-context.start = function(opt) {
+JitsuContext.prototype.start = function(opt) {
   var self = this;
   var p = this.program = opt.program;
 
@@ -840,21 +838,21 @@ context.start = function(opt) {
   this.focus(this.left);
 };
 
-context.focus = function(target) {
+JitsuContext.prototype.focus = function(target) {
   return !target
     ? this.history[this.history.length-1] || this.left
     : this.history.push(target);
 };
 
-context.focusPrevious = function() {
+JitsuContext.prototype.focusPrevious = function() {
   return this.history.pop();
 };
 
-context.scroll = function(i) {
+JitsuContext.prototype.scroll = function(i) {
   return this.focus().scroll(i);
 };
 
-context.render = function() {
+JitsuContext.prototype.render = function() {
   var p = this.program;
 
   var longest = this.longest;
@@ -869,11 +867,11 @@ context.render = function() {
   this.focus().render();
 };
 
-context.refresh = function() {
+JitsuContext.prototype.refresh = function() {
   this.statusbar.refresh();
 };
 
-context.resize = function() {
+JitsuContext.prototype.resize = function() {
   var p = this.program
     , focus = this.focus();
 
@@ -889,7 +887,7 @@ context.resize = function() {
   this.render();
 };
 
-context.mouse = function(key) {
+JitsuContext.prototype.mouse = function(key) {
   var p = this.program;
 
   if (key.action === 'wheelup') {
@@ -958,7 +956,7 @@ context.mouse = function(key) {
   }
 };
 
-context.key = function(ch, key) {
+JitsuContext.prototype.key = function(ch, key) {
   var self = this
     , context = this
     , p = this.program;
@@ -1186,7 +1184,7 @@ context.key = function(ch, key) {
   }
 };
 
-context.echo = function(text, noClear) {
+JitsuContext.prototype.echo = function(text, noClear) {
   var p = this.program;
   p.move(1, p.rows);
   p.eraseInLine('right');
@@ -1194,7 +1192,7 @@ context.echo = function(text, noClear) {
   p._needsClear = !noClear;
 };
 
-context.exit = function(msg) {
+JitsuContext.prototype.exit = function(msg) {
   var p = this.program;
   p.disableMouse();
   p.clear();
@@ -1204,16 +1202,16 @@ context.exit = function(msg) {
   return process.exit(0);
 };
 
-context.error = context.exit;
+JitsuContext.prototype.error = JitsuContext.prototype.exit;
 
-context.clearInput = function() {
+JitsuContext.prototype.clearInput = function() {
   var p = this.program;
   if (p._enter) {
     this.key('\x1b', { name: 'escape' });
   }
 };
 
-context.setContent = function(text) {
+JitsuContext.prototype.setContent = function(text) {
   this.content.offset = 0;
   this.content.text = text;
   this.content.parse(text);
@@ -1221,7 +1219,7 @@ context.setContent = function(text) {
   this.render();
 };
 
-context.setInput = function(text, def, callback) {
+JitsuContext.prototype.setInput = function(text, def, callback) {
   if (arguments.length === 2) {
     callback = def;
     def = '';
@@ -1234,7 +1232,7 @@ context.setInput = function(text, def, callback) {
   this.render();
 };
 
-context.setDialog = function(text, callback) {
+JitsuContext.prototype.setDialog = function(text, callback) {
   this.dialog.offset = 0;
   this.dialog.parse(text);
   this.dialog.callback = callback;
@@ -1242,7 +1240,7 @@ context.setDialog = function(text, callback) {
   this.render();
 };
 
-context.startLoading = function() {
+JitsuContext.prototype.startLoading = function() {
   var self = this
     , loadsym = ['|', '/', '-', '\\']
     , i = 0;
@@ -1260,7 +1258,7 @@ context.startLoading = function() {
   }, 300);
 };
 
-context.stopLoading = function() {
+JitsuContext.prototype.stopLoading = function() {
   if (this.load) {
     clearInterval(this.load);
     delete this.load;
@@ -1275,7 +1273,7 @@ context.stopLoading = function() {
   //this.echo('');
 };
 
-context.executeRight = function(option) {
+JitsuContext.prototype.executeRight = function(option) {
   var self = this;
 
   if (option === 'start') {
