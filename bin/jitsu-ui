@@ -1303,8 +1303,14 @@ context.executeRight = function(option) {
   }
 
   if (option === 'deploy') {
-    var msg = 'Deploy from where?\ne.g. ~/node_modules/foobar.';
-    return this.setInput(msg, process.cwd(), function(input) {
+    var msg = 'Deploy from where?\ne.g. ~/node_modules/foobar.'
+      , cwd = process.cwd();
+
+    if (cwd.indexOf(process.env.HOME) === 0) {
+      cwd = '~' + cwd.substring(process.env.HOME.length);
+    }
+
+    return this.setInput(msg, cwd, function(input) {
       if (!input) return;
       input = input.replace(/^~/, process.env.HOME);
       self.startLoading();
