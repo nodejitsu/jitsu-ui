@@ -12,7 +12,7 @@ process.title = 'jitsu-ui';
 
 var _require = require;
 require = function(name) {
-  if (name !== 'jitsu') {
+  if (name !== 'jitsu' || process.env.NODE_ENV !== 'test') {
     return _require.apply(this, arguments);
   }
 
