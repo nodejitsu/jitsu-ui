@@ -8,7 +8,7 @@
  * Modules
  */
 
-require = require('../lib/debug')(require);
+var require = require('../lib/debug')(require);
 
 var child_process = require('child_process')
   , spawn = child_process.spawn
@@ -1422,6 +1422,8 @@ function parseArg(argv) {
   while (argv.length) {
     arg = getarg();
     switch (arg) {
+      case 'ui':
+        break;
       case '-h':
       case '--help':
         return help();
