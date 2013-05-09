@@ -106,13 +106,6 @@ require = function(name) {
     });
   };
 
-  jitsu.env.list = function(name, callback) {
-    return callback(null, {
-      SUBDOMAIN: 'fuubar3.my-app2.fuubar3',
-      NODE_ENV: 'production'
-    });
-  };
-
   jitsu.apps.update = function(app, value, callback) {
     return setTimeout(function() {
       return callback();
@@ -1410,8 +1403,9 @@ JitsuContext.prototype.executeRight = function(option) {
   }
 
   if (option === 'env') {
-    return jitsu.env.list(this.left.selected().name, function(err, env) {
+    return jitsu.apps.view(this.left.selected().name, function(err, app) {
       if (err) return;
+      var env = app.env;
 
       var data = [];
 
