@@ -4,13 +4,11 @@
  * jitsu-ui
  */
 
-process.title = 'jitsu-ui';
-
-require = require('../lib/debug')(require);
-
 /**
  * Modules
  */
+
+require = require('../lib/debug')(require);
 
 var child_process = require('child_process')
   , spawn = child_process.spawn
@@ -1503,6 +1501,7 @@ function print(obj) {
 }
 
 if (!module.parent) {
+  process.title = 'jitsu-ui';
   main(process.argv.slice(), function(err) {
     if (err) throw err;
     return process.exit(0);
