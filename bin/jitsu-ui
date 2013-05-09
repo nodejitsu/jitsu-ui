@@ -200,47 +200,49 @@ var child_process = require('child_process')
  * Jitsu Cache
  */
 
-jitsu._cache = {};
+function jitsuHooks() {
+  jitsu._cache = {};
 
-jitsu._collectGarbage = function() {
-  if (this._gc) {
-    clearTimeout(this._gc);
-    delete this._gc;
-  }
-
-  this._gc = setTimeout(function() {
-    jitsu._cache = {};
-  }, 5 * 1000);
-
-  if (this._gc.unref) {
-    this._gc.unref();
-  }
-
-  return this._gc;
-};
-
-jitsu.apps._view = jitsu.apps.view;
-jitsu.apps.view = function() {
-  var args = Array.prototype.slice.call(arguments)
-    , callback = args.pop()
-    , hash = JSON.stringify(args);
-
-  if (jitsu._cache[hash]) {
-    return callback(null, jitsu._cache[hash]);
-  }
-
-  jitsu._collectGarbage();
-
-  args.push(function(err, result) {
-    jitsu._collectGarbage();
-    if (result) {
-      jitsu._cache[hash] = result;
+  jitsu._collectGarbage = function() {
+    if (this._gc) {
+      clearTimeout(this._gc);
+      delete this._gc;
     }
-    return callback.apply(null, arguments);
-  });
 
-  return jitsu.apps._view.apply(jitsu.apps, args);
-};
+    this._gc = setTimeout(function() {
+      jitsu._cache = {};
+    }, 5 * 1000);
+
+    if (this._gc.unref) {
+      this._gc.unref();
+    }
+
+    return this._gc;
+  };
+
+  jitsu.apps._view = jitsu.apps.view;
+  jitsu.apps.view = function() {
+    var args = Array.prototype.slice.call(arguments)
+      , callback = args.pop()
+      , hash = JSON.stringify(args);
+
+    if (jitsu._cache[hash]) {
+      return callback(null, jitsu._cache[hash]);
+    }
+
+    jitsu._collectGarbage();
+
+    args.push(function(err, result) {
+      jitsu._collectGarbage();
+      if (result) {
+        jitsu._cache[hash] = result;
+      }
+      return callback.apply(null, arguments);
+    });
+
+    return jitsu.apps._view.apply(jitsu.apps, args);
+  };
+}
 
 /**
  * Context
@@ -1640,6 +1642,7 @@ function beginPoll() {
 
 function main(argv, callback) {
   return jitsu.setup(function() {
+    jitsuHooks();
     beginPoll();
     return poll({}, function(err) {
       if (err) return callback(err);
