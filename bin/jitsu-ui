@@ -1458,6 +1458,8 @@ JitsuContext.prototype.executeRight = function(option) {
         }
       });
 
+      // TODO: Handle no logs here.
+
       self.logs = new List({
         context: self.right.context,
         data: data,
