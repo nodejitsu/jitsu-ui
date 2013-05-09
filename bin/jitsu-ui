@@ -20,7 +20,8 @@ var child_process = require('child_process')
   , fs = require('fs')
   , EventEmitter = require('events').EventEmitter
   , blessed = require('blessed')
-  , jitsu = require('jitsu');
+  , jitsu
+  , opt;
 
 /**
  * Jitsu Cache
@@ -1435,8 +1436,6 @@ function parseArg(argv) {
   return options;
 }
 
-var opt = parseArg(process.argv);
-
 function help() {
   console.log('todo');
   return process.exit(0);
@@ -1469,7 +1468,15 @@ function beginPoll() {
   })();
 }
 
-function main(argv, callback) {
+function main(argv, jitsu_, callback) {
+  if (!callback) {
+    callback = jitsu_;
+    jitsu_ = null;
+  }
+
+  opt = parseArg(argv);
+  jitsu = jitsu_ || require('jitsu');
+
   return jitsu.setup(function() {
     jitsuHooks();
     beginPoll();
