@@ -1,0 +1,914 @@
+#!/usr/bin/env node
+
+/**
+ * jitsu-ui
+ */
+
+/**
+ * Modules
+ */
+
+var require = require('../lib/debug')(require);
+
+var child_process = require('child_process')
+  , spawn = child_process.spawn
+  , exec = child_process.execFile
+  , path = require('path')
+  , util = require('util')
+  , fs = require('fs')
+  , EventEmitter = require('events').EventEmitter
+  , blessed = require('blessed')
+  , jitsu
+  , opt;
+
+/**
+ * Jitsu Cache
+ */
+
+function jitsuHooks() {
+  jitsu._cache = {};
+
+  jitsu._collectGarbage = function() {
+    if (this._gc) {
+      clearTimeout(this._gc);
+      delete this._gc;
+    }
+
+    this._gc = setTimeout(function() {
+      jitsu._cache = {};
+    }, 5 * 1000);
+
+    if (this._gc.unref) {
+      this._gc.unref();
+    }
+
+    return this._gc;
+  };
+
+  jitsu.apps._view = jitsu.apps.view;
+  jitsu.apps.view = function() {
+    var args = Array.prototype.slice.call(arguments)
+      , callback = args.pop()
+      , hash = JSON.stringify(args);
+
+    if (jitsu._cache[hash]) {
+      return callback(null, jitsu._cache[hash]);
+    }
+
+    jitsu._collectGarbage();
+
+    args.push(function(err, result) {
+      jitsu._collectGarbage();
+      if (result) {
+        jitsu._cache[hash] = result;
+      }
+      return callback.apply(null, arguments);
+    });
+
+    return jitsu.apps._view.apply(jitsu.apps, args);
+  };
+}
+
+function start(opt, callback) {
+  var user = opt.user
+    , apps = opt.apps
+    , app;
+
+  var longest = 0;
+  apps.forEach(function(app) {
+    if (app.name.length > longest) {
+      longest = app.name.length;
+    }
+  });
+
+  opt._user = {
+    username: user.username,
+    status: user.status || 'unknown',
+    email: user.email,
+    ctime: new Date(user.ctime).toUTCString(),
+    mtime: new Date(user.mtime).toUTCString(),
+    permissions: user.permissions || {},
+    //inviteCode: user.inviteCode,
+    //profile: user.profile,
+    //thirdPartyTokens: user.thirdPartyTokens,
+    //'confirm-time': user['confirm-time'],
+    //first_name: user.first_name,
+    //last_name: user.last_name,
+    customer: user.billing ? user.billing.customerId : null,
+    profile: user.billing ? user.billing.profileId : null,
+    subscription: (function() {
+      if (!user.billing || !user.billing.subscriptions) return;
+
+      var subs = user.billing.subscriptions
+        , keys = Object.keys(subs)
+        , i = 0
+        , sub;
+
+      for (; i < keys.length; i++) {
+        sub = subs[keys[i]];
+        if (!sub.disabled) return sub;
+      }
+    })(),
+    apps: {
+      total: apps.length,
+      started: apps.filter(function (app) {
+        return app.state === 'started';
+      }).length
+    },
+    drones: {
+      started: apps.reduce(function(total, app) {
+        var drones = app.drones != null && app.state === 'started'
+          ? app.drones
+          : 0;
+
+        return total + drones;
+      }, 0),
+      limit: (function() {
+        var subs = opt.user.billing && opt.user.billing.subscriptions;
+        if (!subs) return 0;
+
+        var sub = Object.keys(subs).map(function(key) {
+          return subs[key];
+        }).filter(function(sub) {
+          return !sub.disabled;
+        })[0];
+
+        if (!sub) return 0;
+
+        switch (sub.plan) {
+          case 'individual-micro':
+            return 1;
+          case 'individual-small':
+            return 3;
+          case 'individual-regular':
+            return 5;
+          case 'individual-large':
+            return 10;
+          case 'business-micro':
+            return 2;
+          case 'business-small':
+            return 5;
+          case 'business-regular':
+            return 10;
+          case 'business-large':
+            return 10 + Infinity;
+        }
+
+        return 0;
+      })()
+    }
+  };
+
+  opt._apps = apps.map(function(app) {
+    var cfg = (app.config ? app.config.cloud : null) || [],
+    cfg = cfg[0] || {};
+    return {
+      //_id: app._id,
+      user: app.user,
+      name: app.name,
+      subdomain: app.subdomain,
+      domains: app.domains || [],
+      ctime: new Date(app.ctime).toUTCString(),
+      mtime: new Date(app.mtime).toUTCString(),
+      url: 'http://' + app.subdomain + '.jit.su/',
+      organization: app.organization,
+      state: app.state,
+      drones: app.drones,
+      maxDrones: app.maxDrones,
+      setDrones: cfg.drones,
+      openSource: !!app.openSource,
+      running: (app.running || {}).id,
+      active: (app.active || {}).id,
+      env: app.env,
+      databases: app.databases || {},
+      //config: cfg,
+      provider: cfg.provider,
+      datacenter: cfg.datacenter,
+      ram: cfg.ram,
+      snapshots: (function() {
+        var snap = (app.snapshots || []).map(function (snapshot) {
+          return snapshot.id;
+        });
+
+        var out = snap.slice(-3).reverse();
+
+        if (snap.length - 3 > 0) {
+          out.push((snap.length - 3) + ' more...');
+        }
+
+        return out;
+      })(),
+      plan: (function () {
+        var user = opt.user;
+
+        if (!app.subscriptionId) {
+          return 'none (null)';
+        }
+
+        if (!user.billing
+            || !user.billing.subscriptions
+            || !user.billing.subscriptions[app.subscriptionId]) {
+          return 'nonexistent (' + app.subscriptionId + ')';
+        }
+
+        var sub = user.billing.subscriptions[app.subscriptionId],
+            plan = sub.plan;
+
+        plan += ' (' + app.subscriptionId + ')';
+        if (sub.disabled) {
+          plan += ' (canceled)';
+        }
+
+        return plan;
+      })()
+    };
+  });
+
+  var screen = new blessed.Screen;
+
+  var side = new blessed.List({
+    parent: screen,
+    mouse: true,
+    keys: true,
+    vi: true,
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: longest + 2,
+    selectedBg: 'blue',
+    items: ['user'].concat(apps.map(function(app) {
+      return app.name;
+    }))
+  });
+
+  var sep = new blessed.Line({
+    parent: screen,
+    orientation: 'vertical',
+    left: longest + 2,
+    top: 0,
+    bottom: 0
+  });
+
+  var main = new blessed.ScrollableText({
+    parent: screen,
+    mouse: true,
+    keys: true,
+    vi: true,
+    content: 'hello world',
+    tags: true,
+    left: longest + 4,
+    //top: 1,
+    //bottom: 0,
+    top: 0,
+    bottom: 1,
+    right: 0
+  });
+
+  // TODO: Allow chidlren elements to be scrollable in ScrollableBox *along* with content.
+  // Maybe auto-position elements in ScrollableBox, or AutoScrollableBox.
+
+  var bar = new blessed.Box({
+    parent: screen,
+    left: longest + 3,
+    right: 0,
+    //top: 0,
+    bottom: 0,
+    height: 1,
+    //underline: true,
+    bg: 'lightblack'
+  });
+
+  bar._.user = new blessed.Text({
+    parent: bar,
+    right: 1,
+    height: 1,
+    bg: 'lightblack',
+    fg: 'white',
+    //underline: true,
+    content: opt.user.username
+  });
+
+  // TODO: Maybe make a horizontal list.
+  var drawn = 0;
+  ['deploy',
+   //'view',
+   'destroy',
+   'start',
+   'restart',
+   'stop',
+   'setdrones',
+   'logs',
+   'snapshots',
+   'env'].forEach(function(text) {
+    bar._[text] = new blessed.Button({
+      parent: bar,
+      top: 0,
+      left: drawn + 1,
+      bg: 'blue',
+      height: 1,
+      content: text,
+      //shrink: true
+      width: text.length + 2,
+      //underline: true,
+      align: 'center'
+    });
+    bar._[text].on('keypress', function(ch, key) {
+      if (key.name === 'enter' || key.name === 'l') {
+        bar.emit('selected', text, bar._[text]);
+        if (bar._[text]._.callback) {
+          bar._[text]._.callback();
+        }
+      }
+    });
+    drawn += text.length + 3;
+  });
+
+  bar._.deploy._.callback = function() {
+    if (!app) return showError('Not an app!');
+    var cwd = process.cwd().replace(process.env.HOME, '~');
+    if (cwd[cwd.length-1] !== '/') cwd += '/';
+    return type('Deploy from where? (e.g. ~/node_modules/foobar)', cwd, function(err, response) {
+      bar._.deploy.focus();
+      if (err) return showError(err.message);
+      if (!response) return;
+      loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
+      setTimeout(loading._.stop, 5000);
+    });
+  };
+
+  bar._.start._.callback = function() {
+    if (!app) return showError('Not an app!');
+    loading._.load('App is being {blue-fg}started{/}. Please wait...');
+    setTimeout(loading._.stop, 5000);
+  };
+
+  bar._.stop._.callback = function() {
+    if (!app) return showError('Not an app!');
+    loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
+    setTimeout(loading._.stop, 5000);
+  };
+
+  bar._.restart._.callback = function() {
+    if (!app) return showError('Not an app!');
+    loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
+    setTimeout(loading._.stop, 5000);
+  };
+
+  bar._.destroy._.callback = function() {
+    if (!app) return showError('Not an app!');
+    var text = 'Are you sure you want to destroy this?'
+      + ' If so, type your username.';
+    return type(text, function(err, response) {
+      bar._.destroy.focus();
+      if (err) return showError(err.message);
+      if (!response) return;
+      loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
+      setTimeout(loading._.stop, 5000);
+    });
+  };
+
+  bar._.setdrones._.callback = function() {
+    if (!app) return showError('Not an app!');
+    return type('Set drones:', app.maxDrones + '', function(err, response) {
+      bar._.setdrones.focus();
+      if (err) return showError(err.message);
+      if (!response) return;
+      loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
+      setTimeout(loading._.stop, 5000);
+    });
+  };
+
+  bar._.logs._.callback = function() {
+    if (!app) return showError('Not an app!');
+    return jitsu.logs.byApp(app.name, 20, function(err, results) {
+      var data = [];
+
+      function sort(first, second) {
+        return new Date(first.timestamp) - new Date(second.timestamp);
+      }
+
+      results.data.sort(sort).forEach(function(log) {
+        if (log.json && log.json.message != null) {
+          log.json.message.split('\n').forEach(function (line) {
+            data.push({
+              date: new Date(log.timestamp),
+              message: line,
+              text: new Date(log.timestamp).toUTCString() + ' - ' + line
+            });
+          });
+        }
+      });
+
+      data = data.map(function(log) {
+        return log.text;
+      });
+
+      if (!data.length) data.push('--- No logs. ---');
+
+      mainList._.lastFocus = bar._.logs;
+      mainList.show();
+      mainList.setItems(data);
+      mainList.select(0);
+      mainList.focus();
+      screen.render();
+    });
+  };
+
+  bar._.snapshots._.callback = function() {
+    if (!app) return showError('Not an app!');
+    return jitsu.snapshots.list(app.name, function(err, snapshots) {
+      var data = snapshots.map(function(snapshot) {
+        return snapshot.id
+          + ' - '
+          + snapshot.filename
+          + ' - '
+          + new Date(snapshot.ctime).toUTCString();
+      });
+
+      mainList._.lastFocus = bar._.snapshots;
+      mainList.show();
+      mainList.setItems(data);
+      mainList.select(0);
+      mainList.focus();
+      screen.render();
+
+      mainList.once('action', function(el, index) {
+        if (!el) return;
+        var i = data.indexOf(el.content);
+        loading._.load('Snapshot is being {blue-fg}activated{/}. Please wait...');
+        return setTimeout(function() {
+          loading._.stop();
+        }, 5000);
+        return jitsu.snapshots.activate(app.name, snapshots[i].id, function(err) {
+          if (err) showError(err.message);
+          loading._.stop();
+        });
+      });
+    });
+  };
+
+  bar._.env._.callback = function() {
+    if (!app) return showError('Not an app!');
+    return jitsu.apps.view(app.name, function(err, app) {
+      var env = app.env || {}
+        , data = [];
+
+      Object.keys(env).forEach(function(key) {
+        data.push(key + '=' + env[key]);
+      });
+
+      mainList._.lastFocus = bar._.env;
+      mainList.show();
+      mainList.setItems(data);
+      mainList.select(0);
+      mainList.focus();
+      screen.render();
+
+      mainList.once('action', function(el, index) {
+        if (!el) return;
+        var i = data.indexOf(el.content)
+          , parts = data[i].split('=')
+          , key = parts[0]
+          , val = parts[1];
+
+        return type('Value of ' + key + ':', val, function(err, response) {
+          mainList.focus();
+          if (err) return showError(err.message);
+          if (!response) return;
+          var body = {};
+          body[key] = response === '' ? null : response;
+          loading._.load('Environment variable is being {blue-fg}set{/}. Please wait...');
+          return setTimeout(function() {
+            loading._.stop();
+          }, 5000);
+          return jitsu.apps.update(app.name, body, function(err) {
+            if (err) showError(err.message);
+            loading._.stop();
+          });
+        });
+      });
+    });
+  };
+
+  screen.on('element focus', function(old, cur) {
+    if (old._bg) old.bg = old._bg;
+    if (cur instanceof blessed.Button) {
+      cur._bg = cur.bg;
+      cur.bg = 1;
+    }
+    screen.render();
+  });
+
+  screen.on('keypress', function(ch, key) {
+    if (key.name === 'tab') {
+      if (!key.shift) {
+        screen.focusNext();
+      } else {
+        screen.focusPrev();
+      }
+      screen.render();
+      return;
+    }
+    if (key.name === 'escape') {
+      return process.exit(0);
+    }
+  });
+
+  side.on('scroll', function() {
+    if (side.selected < 1) {
+      app = null;
+      if (side.selected === 0) {
+        main.childBase = 0; // TODO: Maybe automate this.
+        main.setContent(formatMain({ fix: true }, opt._user, main.width));
+      }
+    } else {
+      app = opt._apps[side.selected - 1];
+      main.childBase = 0; // TODO: Maybe automate this.
+      main.setContent(formatMain({ fix: true }, app, main.width));
+    }
+    screen.render();
+  });
+
+  side.select(0);
+  side.focus();
+
+  var mainList = new blessed.List({
+    parent: screen,
+    left: main.left,
+    top: main.top,
+    bottom: main.bottom,
+    right: main.right,
+    hidden: true,
+    selectedBg: 'blue',
+    mouse: true,
+    keys: true,
+    vi: true
+  });
+
+  mainList.on('cancel', function() {
+    mainList.hide();
+    if (mainList._.lastFocus) mainList._.lastFocus.focus();
+    screen.render();
+  });
+
+  var prompt = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    content: '',
+    width: 'half',
+    height: 7,
+    left: 'center',
+    top: 'center',
+    border: {
+      type: 'ascii'
+    }
+  });
+
+  prompt._.text = new blessed.Text({
+    parent: prompt,
+    top: 1,
+    height: 1,
+    left: 2,
+    right: 2
+  });
+
+  prompt._.input = new blessed.Textbox({
+    parent: prompt,
+    top: 3,
+    height: 1,
+    left: 2,
+    right: 2,
+    bg: 'black'
+  });
+
+  prompt._.okay = new blessed.Textbox({
+    parent: prompt,
+    top: 5,
+    height: 1,
+    left: 2,
+    width: 6,
+    content: 'Okay',
+    align: 'center',
+    bg: 'black'
+  });
+
+  prompt._.cancel = new blessed.Textbox({
+    parent: prompt,
+    top: 5,
+    height: 1,
+    shrink: true,
+    left: 10,
+    width: 8,
+    content: 'Cancel',
+    align: 'center',
+    bg: 'black'
+  });
+
+  var loading = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 'half',
+    height: 4,
+    border: {
+      type: 'ascii'
+    }
+  });
+
+  loading._.msg = new blessed.Text({
+    parent: loading,
+    align: 'center',
+    top: 1,
+    left: 1,
+    right: 1,
+    height: 1,
+    tags: true
+  });
+
+  loading._.icon = new blessed.Text({
+    parent: loading,
+    align: 'center',
+    top: 2,
+    left: 1,
+    right: 1,
+    height: 1,
+    content: '|'
+  });
+
+  loading._.load = function(text) {
+    loading.show();
+    loading._.msg.setContent(text);
+    if (loading._.timer) {
+      loading._.stop();
+    }
+    screen.lockKeys = true;
+    loading._.timer = setInterval(function() {
+      if (loading._.icon.content === '|') {
+        loading._.icon.setContent('/');
+      } else if (loading._.icon.content === '/') {
+        loading._.icon.setContent('-');
+      } else if (loading._.icon.content === '-') {
+        loading._.icon.setContent('\\');
+      } else if (loading._.icon.content === '\\') {
+        loading._.icon.setContent('|');
+      }
+      screen.render();
+    }, 200);
+  };
+
+  loading._.stop = function() {
+    screen.lockKeys = false;
+    loading.hide();
+    if (loading._.timer) {
+      clearInterval(loading._.timer);
+      delete loading._.timer;
+    }
+    screen.render();
+  };
+
+  function type(text, value, callback) {
+    if (!callback) {
+      callback = value;
+      value = '';
+    }
+    prompt.show();
+    prompt._.text.setContent(text);
+    if (value) prompt._.input.setContent(value);
+    prompt._.input.setInput(function(err, data) {
+      prompt.hide();
+      return callback(err, data);
+    });
+  }
+
+  var error = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 'half',
+    height: 3,
+    border: {
+      type: 'ascii'
+    }
+  });
+
+  error._.msg = new blessed.Text({
+    parent: error,
+    align: 'center',
+    fg: 'red',
+    top: 1,
+    left: 1,
+    right: 1,
+    height: 1,
+    tags: true
+  });
+
+  function showError(text, callback) {
+    error.show();
+    error._.msg.setContent('Error: ' + text);
+    screen.render();
+    setTimeout(function() {
+      error.hide();
+      screen.render();
+      if (callback) callback();
+    }, 3000);
+  }
+
+  screen.render();
+
+  function typeUsername(callback) {
+    if (jitsu.config.get('username')) return callback();
+    return type('Type your username:', callback);
+  }
+
+  function typePassword(callback) {
+    if (jitsu.config.get('password')) return callback();
+    return type('Type your password:', callback);
+  }
+
+  if (!jitsu.config.get('username') || !jitsu.config.get('password')) {
+    return typeUsername(function(err, input) {
+      if (input) jitsu.config.set('username', input);
+      return typePassword(function(err, input) {
+        if (input) jitsu.config.set('password', input);
+        side.focus();
+        return jitsu.auth(function (err) {
+          if (err) {
+            return showError(err.message + '');
+          }
+          return jitsu.config.save(function (err) {
+            if (err) {
+              return showError(err.message + '');
+            }
+          });
+        });
+      });
+    });
+  }
+}
+
+function formatMain(opt, data, width) {
+  var out = '';
+
+  var longest = 0;
+  Object.keys(data).forEach(function(key) {
+    if (key.length > longest) {
+      longest = key.length;
+    }
+  });
+
+  Object.keys(data).forEach(function(key) {
+    var val = data[key];
+    if (val == null) {
+      val = 'none';
+    } else if (Array.isArray(val)) {
+      var o = [];
+      val.forEach(function(v) {
+        o.push(typeof v !== 'string' ? JSON.stringify(v) : v + '');
+      });
+      val = o.join(', ') || 'none';
+    } else if (typeof val === 'object') {
+      var o = [];
+      Object.keys(val).forEach(function(k) {
+        var v = val[k];
+        o.push(k + '=' + (typeof v !== 'string' ? JSON.stringify(v) : v + ''));
+      });
+      val = o.join(', ') || 'none';
+    } else if (typeof val !== 'string') {
+      val = JSON.stringify(val);
+    }
+    if (longest + val.length >= width - 7) {
+      val = val.substring(0, width - longest - 14) + '...';
+    }
+    out += '{blue-fg}' + key + ':{/} '
+      + (opt.fix ? Array(longest - key.length + 1 + 1).join(' ') : '')
+      + val + '\n';
+  });
+
+  return out;
+}
+
+function parseArg(argv) {
+  var argv = argv.slice(2)
+    , options = {}
+    , files = [];
+
+  function getarg() {
+    var arg = argv.shift();
+
+    if (arg.indexOf('--') === 0) {
+      // e.g. --opt
+      arg = arg.split('=');
+      if (arg.length > 1) {
+        // e.g. --opt=val
+        argv.unshift(arg.slice(1).join('='));
+      }
+      arg = arg[0];
+    } else if (arg[0] === '-') {
+      if (arg.length > 2) {
+        // e.g. -abc
+        argv = arg.substring(1).split('').map(function(ch) {
+          return '-' + ch;
+        }).concat(argv);
+        arg = argv.shift();
+      } else {
+        // e.g. -a
+      }
+    } else {
+      // e.g. foo
+    }
+
+    return arg;
+  }
+
+  while (argv.length) {
+    arg = getarg();
+    switch (arg) {
+      case 'ui':
+        break;
+      case '-h':
+      case '--help':
+        return help();
+      default:
+        files.push(arg);
+        break;
+    }
+  }
+
+  return options;
+}
+
+function help() {
+  console.log('todo');
+  return process.exit(0);
+}
+
+function poll(options, callback) {
+  options = options || {};
+  callback = callback || function() {};
+
+  return jitsu.apps.list(function(err, apps) {
+    if (err) return callback(err);
+
+    if (options.update !== false) {
+      opt.apps = opt.apps || [];
+      opt.apps.length = 0;
+      opt.apps.push.apply(opt.apps, apps);
+    }
+
+    return callback(null, {
+      apps: apps
+    });
+  });
+}
+
+function beginPoll() {
+  (function self() {
+    return poll({}, function() {
+      return setTimeout(self, 10 * 1000);
+    });
+  })();
+}
+
+function main(argv, jitsu_, callback) {
+  if (!callback) {
+    callback = jitsu_;
+    jitsu_ = null;
+  }
+
+  opt = parseArg(argv);
+  jitsu = jitsu_ || require('jitsu');
+
+  return jitsu.setup(function() {
+    jitsuHooks();
+    return jitsu.users.view(jitsu.config.get('username'), function(err, user) {
+      opt.user = user || {};
+      opt.user = opt.user.user || opt.user;
+      beginPoll();
+      return poll({}, function(err) {
+        if (err) return callback(err);
+        return start(opt, function(err) {
+          if (err) return callback(err);
+          return callback();
+        });
+      });
+    });
+  });
+}
+
+function inspect(obj) {
+  return typeof obj !== 'string'
+    ? util.inspect(obj, false, 6, true)
+    : obj;
+}
+
+if (!module.parent) {
+  process.title = 'jitsu-ui';
+  main(process.argv.slice(), function(err) {
+    if (err) throw err;
+    return process.exit(0);
+  });
+} else {
+  module.exports = main;
+}
