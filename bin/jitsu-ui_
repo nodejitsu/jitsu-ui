@@ -8,6 +8,13 @@
  * Modules
  */
 
+var _argv = process.argv.slice();
+process.argv = process.argv.slice(0, 2);
+
+if (~_argv.indexOf('--mock')) {
+  process.env.NODE_ENV = 'test';
+}
+
 var require = require('../lib/debug')(require);
 
 var child_process = require('child_process')
@@ -224,7 +231,7 @@ function start(opt, callback) {
     };
   });
 
-  var screen = new blessed.Screen;
+  var screen = blessed.Screen.global || new blessed.Screen;
 
   var side = new blessed.List({
     parent: screen,
@@ -254,7 +261,6 @@ function start(opt, callback) {
     mouse: true,
     keys: true,
     vi: true,
-    content: 'hello world',
     tags: true,
     left: longest + 4,
     //top: 1,
@@ -275,16 +281,8 @@ function start(opt, callback) {
     bottom: 0,
     height: 1,
     //underline: true,
-    bg: 'lightblack'
-  });
-
-  bar._.user = new blessed.Text({
-    parent: bar,
-    right: 1,
-    height: 1,
     bg: 'lightblack',
-    fg: 'white',
-    //underline: true,
+    align: 'right',
     content: opt.user.username
   });
 
@@ -299,7 +297,9 @@ function start(opt, callback) {
    'setdrones',
    'logs',
    'snapshots',
-   'env'].forEach(function(text) {
+   'env',
+   'cloud',
+   'browse'].forEach(function(text) {
     bar._[text] = new blessed.Button({
       parent: bar,
       top: 0,
@@ -312,74 +312,87 @@ function start(opt, callback) {
       //underline: true,
       align: 'center'
     });
-    bar._[text].on('keypress', function(ch, key) {
-      if (key.name === 'enter' || key.name === 'l') {
-        bar.emit('selected', text, bar._[text]);
-        if (bar._[text]._.callback) {
-          bar._[text]._.callback();
-        }
+    bar._[text].on('press', function(ch, key) {
+      if (bar._[text]._.callback) {
+        bar._[text]._.callback();
       }
     });
     drawn += text.length + 3;
   });
 
   bar._.deploy._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     var cwd = process.cwd().replace(process.env.HOME, '~');
     if (cwd[cwd.length-1] !== '/') cwd += '/';
-    return type('Deploy from where? (e.g. ~/node_modules/foobar)', cwd, function(err, response) {
+    return prompt._.type('Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})', cwd, function(err, response) {
       bar._.deploy.focus();
-      if (err) return showError(err.message);
+      if (err) return error._.show(err.message);
       if (!response) return;
       loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
-      setTimeout(loading._.stop, 5000);
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      return jexec(['deploy', response], function(err) {
+        loading._.stop();
+        if (err) error._.show(err);
+      });
     });
   };
 
   bar._.start._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     loading._.load('App is being {blue-fg}started{/}. Please wait...');
-    setTimeout(loading._.stop, 5000);
+    if (opt.debug) {
+      return setTimeout(loading._.stop, 5000);
+    }
   };
 
   bar._.stop._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
-    setTimeout(loading._.stop, 5000);
+    if (opt.debug) {
+      return setTimeout(loading._.stop, 5000);
+    }
   };
 
   bar._.restart._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
-    setTimeout(loading._.stop, 5000);
+    if (opt.debug) {
+      return setTimeout(loading._.stop, 5000);
+    }
   };
 
   bar._.destroy._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     var text = 'Are you sure you want to destroy this?'
       + ' If so, type your username.';
-    return type(text, function(err, response) {
+    return prompt._.type(text, function(err, response) {
       bar._.destroy.focus();
-      if (err) return showError(err.message);
+      if (err) return error._.show(err.message);
       if (!response) return;
       loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
-      setTimeout(loading._.stop, 5000);
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
     });
   };
 
   bar._.setdrones._.callback = function() {
-    if (!app) return showError('Not an app!');
-    return type('Set drones:', app.maxDrones + '', function(err, response) {
+    if (!app) return error._.show('Not an app!');
+    return prompt._.type('Set drones:', app.maxDrones + '', function(err, response) {
       bar._.setdrones.focus();
-      if (err) return showError(err.message);
+      if (err) return error._.show(err.message);
       if (!response) return;
       loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
-      setTimeout(loading._.stop, 5000);
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
     });
   };
 
   bar._.logs._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     return jitsu.logs.byApp(app.name, 20, function(err, results) {
       var data = [];
 
@@ -415,7 +428,7 @@ function start(opt, callback) {
   };
 
   bar._.snapshots._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     return jitsu.snapshots.list(app.name, function(err, snapshots) {
       var data = snapshots.map(function(snapshot) {
         return snapshot.id
@@ -436,11 +449,11 @@ function start(opt, callback) {
         if (!el) return;
         var i = data.indexOf(el.content);
         loading._.load('Snapshot is being {blue-fg}activated{/}. Please wait...');
-        return setTimeout(function() {
-          loading._.stop();
-        }, 5000);
+        if (opt.debug) {
+          return setTimeout(loading._.stop, 5000);
+        }
         return jitsu.snapshots.activate(app.name, snapshots[i].id, function(err) {
-          if (err) showError(err.message);
+          if (err) error._.show(err.message);
           loading._.stop();
         });
       });
@@ -448,7 +461,7 @@ function start(opt, callback) {
   };
 
   bar._.env._.callback = function() {
-    if (!app) return showError('Not an app!');
+    if (!app) return error._.show('Not an app!');
     return jitsu.apps.view(app.name, function(err, app) {
       var env = app.env || {}
         , data = [];
@@ -471,18 +484,18 @@ function start(opt, callback) {
           , key = parts[0]
           , val = parts[1];
 
-        return type('Value of ' + key + ':', val, function(err, response) {
+        return prompt._.type('Value of ' + key + ':', val, function(err, response) {
           mainList.focus();
-          if (err) return showError(err.message);
+          if (err) return error._.show(err.message);
           if (!response) return;
           var body = {};
           body[key] = response === '' ? null : response;
           loading._.load('Environment variable is being {blue-fg}set{/}. Please wait...');
-          return setTimeout(function() {
-            loading._.stop();
-          }, 5000);
+          if (opt.debug) {
+            return setTimeout(loading._.stop, 5000);
+          }
           return jitsu.apps.update(app.name, body, function(err) {
-            if (err) showError(err.message);
+            if (err) error._.show(err.message);
             loading._.stop();
           });
         });
@@ -547,7 +560,9 @@ function start(opt, callback) {
 
   mainList.on('cancel', function() {
     mainList.hide();
-    if (mainList._.lastFocus) mainList._.lastFocus.focus();
+    if (mainList._.lastFocus) {
+      mainList._.lastFocus.focus();
+    }
     screen.render();
   });
 
@@ -561,15 +576,8 @@ function start(opt, callback) {
     top: 'center',
     border: {
       type: 'ascii'
-    }
-  });
-
-  prompt._.text = new blessed.Text({
-    parent: prompt,
-    top: 1,
-    height: 1,
-    left: 2,
-    right: 2
+    },
+    tags: true
   });
 
   prompt._.input = new blessed.Textbox({
@@ -581,7 +589,7 @@ function start(opt, callback) {
     bg: 'black'
   });
 
-  prompt._.okay = new blessed.Textbox({
+  prompt._.okay = new blessed.Button({
     parent: prompt,
     top: 5,
     height: 1,
@@ -592,7 +600,7 @@ function start(opt, callback) {
     bg: 'black'
   });
 
-  prompt._.cancel = new blessed.Textbox({
+  prompt._.cancel = new blessed.Button({
     parent: prompt,
     top: 5,
     height: 1,
@@ -604,6 +612,29 @@ function start(opt, callback) {
     bg: 'black'
   });
 
+  prompt._.type = function(text, value, callback) {
+    var okay, cancel;
+    if (!callback) {
+      callback = value;
+      value = '';
+    }
+    prompt.show();
+    prompt.setContent(text);
+    if (value) prompt._.input.value = value;
+    prompt._.okay.on('press', okay = function() {
+      prompt._.input.submit();
+    });
+    prompt._.cancel.on('press', cancel = function() {
+      prompt._.input.cancel();
+    });
+    prompt._.input.setInput(function(err, data) {
+      prompt.hide();
+      prompt._.okay.removeListener('press', okay);
+      prompt._.cancel.removeListener('press', cancel);
+      return callback(err, data);
+    });
+  };
+
   var loading = new blessed.Box({
     parent: screen,
     hidden: true,
@@ -613,17 +644,9 @@ function start(opt, callback) {
     height: 4,
     border: {
       type: 'ascii'
-    }
-  });
-
-  loading._.msg = new blessed.Text({
-    parent: loading,
-    align: 'center',
-    top: 1,
-    left: 1,
-    right: 1,
-    height: 1,
-    tags: true
+    },
+    tags: true,
+    align: 'center'
   });
 
   loading._.icon = new blessed.Text({
@@ -638,7 +661,7 @@ function start(opt, callback) {
 
   loading._.load = function(text) {
     loading.show();
-    loading._.msg.setContent(text);
+    loading.setContent(text);
     if (loading._.timer) {
       loading._.stop();
     }
@@ -667,85 +690,195 @@ function start(opt, callback) {
     screen.render();
   };
 
-  function type(text, value, callback) {
-    if (!callback) {
-      callback = value;
-      value = '';
-    }
-    prompt.show();
-    prompt._.text.setContent(text);
-    if (value) prompt._.input.setContent(value);
-    prompt._.input.setInput(function(err, data) {
-      prompt.hide();
-      return callback(err, data);
-    });
-  }
-
   var error = new blessed.Box({
     parent: screen,
     hidden: true,
     top: 'center',
     left: 'center',
     width: 'half',
-    height: 3,
+    fg: 'red',
+    tags: true,
+    align: 'center',
+    shrink: true,
     border: {
       type: 'ascii'
     }
   });
 
-  error._.msg = new blessed.Text({
-    parent: error,
-    align: 'center',
-    fg: 'red',
-    top: 1,
-    left: 1,
-    right: 1,
-    height: 1,
-    tags: true
-  });
-
-  function showError(text, callback) {
+  error._.show = function(text, callback) {
     error.show();
-    error._.msg.setContent('Error: ' + text);
+    error.setContent('Error: ' + text);
     screen.render();
     setTimeout(function() {
       error.hide();
       screen.render();
       if (callback) callback();
     }, 3000);
+  };
+
+  var info = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 'half',
+    tags: true,
+    shrink: true,
+    border: {
+      type: 'ascii'
+    }
+  });
+
+  info._.showWelcome = function(callback) {
+    info.show();
+
+    info.setContent('{center}{green-fg}Welcome to jitsu-ui.{/}\n'
+      + 'Press {blue-fg}Tab{/} and {blue-fg}Shift+Tab{/} to'
+      + ' focus between elements, buttons, and the scroll area. Use vi keys'
+      + ' and arrow keys to navigate within any element.{/center}\n'
+      + '{right}{red-fg}- Nodejitsu{/}{/right}');
+
+    screen.render();
+
+    function end() {
+      if (end.done) return;
+      end.done = true;
+      info.hide();
+      screen.render();
+      if (callback) callback();
+    }
+
+    setTimeout(function() {
+      screen.on('keypress', function fn(ch, key) {
+        if (key.name === 'mouse') return;
+        screen.removeListener('keypress', fn);
+        end();
+      });
+      screen.on('mouse', function fn(data) {
+        if (data.action === 'mousemove') return;
+        screen.removeListener('mouse', fn);
+        end();
+      });
+    }, 1000);
+  };
+
+  return info._.showWelcome();
+}
+
+function auth(callback) {
+  if (jitsu.config.get('username') && jitsu.config.get('password')) {
+    return jitsu.users.view(jitsu.config.get('username'), function(err, user) {
+      return jitsu.apps.list(function(err, apps) {
+        return callback(null, user, apps);
+      });
+    });
   }
 
-  screen.render();
+  var screen = blessed.Screen.global || new blessed.Screen;
+
+  var prompt = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    content: '',
+    width: 'half',
+    height: 7,
+    left: 'center',
+    top: 'center',
+    border: {
+      type: 'ascii'
+    },
+    tags: true
+  });
+
+  prompt._.input = new blessed.Textbox({
+    parent: prompt,
+    top: 3,
+    height: 1,
+    left: 2,
+    right: 2,
+    bg: 'black'
+  });
+
+  prompt._.okay = new blessed.Button({
+    parent: prompt,
+    top: 5,
+    height: 1,
+    left: 2,
+    width: 6,
+    content: 'Okay',
+    align: 'center',
+    bg: 'black'
+  });
+
+  prompt._.cancel = new blessed.Button({
+    parent: prompt,
+    top: 5,
+    height: 1,
+    shrink: true,
+    left: 10,
+    width: 8,
+    content: 'Cancel',
+    align: 'center',
+    bg: 'black'
+  });
+
+  prompt._.type = function(text, value, callback) {
+    var okay, cancel;
+    if (!callback) {
+      callback = value;
+      value = '';
+    }
+    prompt.show();
+    prompt.setContent(text);
+    if (value) prompt._.input.value = value;
+    prompt._.okay.on('press', okay = function() {
+      prompt._.input.submit();
+    });
+    prompt._.cancel.on('press', cancel = function() {
+      prompt._.input.cancel();
+    });
+    prompt._.input.setInput(function(err, data) {
+      prompt.hide();
+      prompt._.okay.removeListener('press', okay);
+      prompt._.cancel.removeListener('press', cancel);
+      return callback(err, data);
+    });
+  };
 
   function typeUsername(callback) {
     if (jitsu.config.get('username')) return callback();
-    return type('Type your username:', callback);
+    return prompt._.type('Type your username:', callback);
   }
 
   function typePassword(callback) {
     if (jitsu.config.get('password')) return callback();
-    return type('Type your password:', callback);
+    prompt._.input.secret = true;
+    return prompt._.type('Type your password:', function(err, result) {
+      prompt._.input.secret = false;
+      return callback(err, result);
+    });
   }
 
-  if (!jitsu.config.get('username') || !jitsu.config.get('password')) {
-    return typeUsername(function(err, input) {
-      if (input) jitsu.config.set('username', input);
-      return typePassword(function(err, input) {
-        if (input) jitsu.config.set('password', input);
-        side.focus();
-        return jitsu.auth(function (err) {
-          if (err) {
-            return showError(err.message + '');
-          }
-          return jitsu.config.save(function (err) {
-            if (err) {
-              return showError(err.message + '');
-            }
+  return typeUsername(function(err, input) {
+    if (input) jitsu.config.set('username', input);
+    return typePassword(function(err, input) {
+      if (input) jitsu.config.set('password', input);
+      prompt.detach();
+      return jitsu.auth(function(err) {
+        //if (err) return error._.show(err.message + '');
+        return jitsu.config.save(function (err) {
+          //if (err) return error._.show(err.message + '');
+          return jitsu.users.view(jitsu.config.get('username'), function(err, user_) {
+            //if (err) return error._.show(err.message + '');
+            return jitsu.apps.list(function(err, apps_) {
+              //if (err) return error._.show(err.message + '');
+              return callback(null, user_, apps_);
+            });
           });
         });
       });
     });
-  }
+  });
 }
 
 function formatMain(opt, data, width) {
@@ -830,6 +963,13 @@ function parseArg(argv) {
       case '-h':
       case '--help':
         return help();
+      case '--debug':
+        options.debug = true;
+        break;
+      case '--mock':
+        process.env.NODE_ENV = 'test';
+        options.mock = true;
+        break;
       default:
         files.push(arg);
         break;
@@ -882,16 +1022,21 @@ function main(argv, jitsu_, callback) {
 
   return jitsu.setup(function() {
     jitsuHooks();
-    return jitsu.users.view(jitsu.config.get('username'), function(err, user) {
-      opt.user = user || {};
-      opt.user = opt.user.user || opt.user;
-      beginPoll();
-      return poll({}, function(err) {
+    return auth(function(err, user, apps) {
+      if (err) return callback(err);
+
+      if (user) {
+        opt.user = user;
+        opt.user = opt.user.user || opt.user;
+      }
+
+      if (apps) {
+        opt.apps = apps;
+      }
+
+      return start(opt, function(err) {
         if (err) return callback(err);
-        return start(opt, function(err) {
-          if (err) return callback(err);
-          return callback();
-        });
+        return callback();
       });
     });
   });
@@ -905,7 +1050,7 @@ function inspect(obj) {
 
 if (!module.parent) {
   process.title = 'jitsu-ui';
-  main(process.argv.slice(), function(err) {
+  main(_argv.slice(), function(err) {
     if (err) throw err;
     return process.exit(0);
   });
