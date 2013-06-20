@@ -288,27 +288,31 @@ function start(opt, callback) {
 
   // TODO: Maybe make a horizontal list.
   var drawn = 0;
-  ['deploy',
-   //'view',
-   'destroy',
-   'start',
-   'restart',
-   'stop',
-   'setdrones',
-   'logs',
-   'snapshots',
-   'env',
-   'cloud',
-   'browse'].forEach(function(text) {
+  var commands = [
+    'deploy',
+    //'view',
+    'destroy',
+    'start',
+    'restart',
+    'stop',
+    'setdrones',
+    'logs',
+    'snapshots',
+    'env',
+    'cloud',
+    'browse'
+  ];
+  commands.forEach(function(text, i) {
+    var t = ++i + '-' + text;
     bar._[text] = new blessed.Button({
       parent: bar,
       top: 0,
       left: drawn + 1,
       bg: 'blue',
       height: 1,
-      content: text,
+      content: t,
       //shrink: true
-      width: text.length + 2,
+      width: t.length + 2,
       //underline: true,
       align: 'center'
     });
@@ -317,15 +321,29 @@ function start(opt, callback) {
         bar._[text]._.callback();
       }
     });
-    drawn += text.length + 3;
+    drawn += t.length + 3;
+  });
+
+  screen.on('keypress', function(ch) {
+    if (ch >= '0' && ch <= '9') {
+      var i = ch === '0' ? 9 : ch - 1
+        , command = commands[i];
+      if (!command || !bar._[command]) return;
+      if (bar._[command]._.callback) {
+        bar._[command]._.callback();
+      }
+    }
   });
 
   bar._.deploy._.callback = function() {
     if (!app) return error._.show('Not an app!');
     var cwd = process.cwd().replace(process.env.HOME, '~');
     if (cwd[cwd.length-1] !== '/') cwd += '/';
+    var focused = screen.focused;
+    bar._.deploy.focus();
     return prompt._.type('Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})', cwd, function(err, response) {
-      bar._.deploy.focus();
+      focused.focus();
+      //bar._.deploy.focus();
       if (err) return error._.show(err.message);
       if (!response) return;
       loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
@@ -367,8 +385,11 @@ function start(opt, callback) {
     if (!app) return error._.show('Not an app!');
     var text = 'Are you sure you want to destroy this?'
       + ' If so, type your username.';
+    var focused = screen.focused;
+    bar._.destroy.focus();
     return prompt._.type(text, function(err, response) {
-      bar._.destroy.focus();
+      //bar._.destroy.focus();
+      focused.focus();
       if (err) return error._.show(err.message);
       if (!response) return;
       loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
@@ -380,8 +401,11 @@ function start(opt, callback) {
 
   bar._.setdrones._.callback = function() {
     if (!app) return error._.show('Not an app!');
+    var focused = screen.focused;
+    bar._.setdrones.focus();
     return prompt._.type('Set drones:', app.maxDrones + '', function(err, response) {
-      bar._.setdrones.focus();
+      //bar._.setdrones.focus();
+      focused.focus();
       if (err) return error._.show(err.message);
       if (!response) return;
       loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
@@ -418,11 +442,8 @@ function start(opt, callback) {
 
       if (!data.length) data.push('--- No logs. ---');
 
-      mainList._.lastFocus = bar._.logs;
-      mainList.show();
-      mainList.setItems(data);
-      mainList.select(0);
-      mainList.focus();
+      mainList._.show(data);
+
       screen.render();
     });
   };
@@ -438,11 +459,8 @@ function start(opt, callback) {
           + new Date(snapshot.ctime).toUTCString();
       });
 
-      mainList._.lastFocus = bar._.snapshots;
-      mainList.show();
-      mainList.setItems(data);
-      mainList.select(0);
-      mainList.focus();
+      mainList._.show(data);
+
       screen.render();
 
       mainList.once('action', function(el, index) {
@@ -470,11 +488,9 @@ function start(opt, callback) {
         data.push(key + '=' + env[key]);
       });
 
-      mainList._.lastFocus = bar._.env;
-      mainList.show();
-      mainList.setItems(data);
-      mainList.select(0);
-      mainList.focus();
+
+      mainList._.show(data);
+
       screen.render();
 
       mainList.once('action', function(el, index) {
@@ -558,82 +574,21 @@ function start(opt, callback) {
     vi: true
   });
 
+  mainList._.show = function(data, focused) {
+    screen.saveFocus();
+    mainList.show();
+    mainList.setItems(data);
+    mainList.select(0);
+    mainList.focus();
+  };
+
   mainList.on('cancel', function() {
     mainList.hide();
-    if (mainList._.lastFocus) {
-      mainList._.lastFocus.focus();
-    }
+    screen.restoreFocus();
     screen.render();
   });
 
-  var prompt = new blessed.Box({
-    parent: screen,
-    hidden: true,
-    content: '',
-    width: 'half',
-    height: 7,
-    left: 'center',
-    top: 'center',
-    border: {
-      type: 'ascii'
-    },
-    tags: true
-  });
-
-  prompt._.input = new blessed.Textbox({
-    parent: prompt,
-    top: 3,
-    height: 1,
-    left: 2,
-    right: 2,
-    bg: 'black'
-  });
-
-  prompt._.okay = new blessed.Button({
-    parent: prompt,
-    top: 5,
-    height: 1,
-    left: 2,
-    width: 6,
-    content: 'Okay',
-    align: 'center',
-    bg: 'black'
-  });
-
-  prompt._.cancel = new blessed.Button({
-    parent: prompt,
-    top: 5,
-    height: 1,
-    shrink: true,
-    left: 10,
-    width: 8,
-    content: 'Cancel',
-    align: 'center',
-    bg: 'black'
-  });
-
-  prompt._.type = function(text, value, callback) {
-    var okay, cancel;
-    if (!callback) {
-      callback = value;
-      value = '';
-    }
-    prompt.show();
-    prompt.setContent(text);
-    if (value) prompt._.input.value = value;
-    prompt._.okay.on('press', okay = function() {
-      prompt._.input.submit();
-    });
-    prompt._.cancel.on('press', cancel = function() {
-      prompt._.input.cancel();
-    });
-    prompt._.input.setInput(function(err, data) {
-      prompt.hide();
-      prompt._.okay.removeListener('press', okay);
-      prompt._.cancel.removeListener('press', cancel);
-      return callback(err, data);
-    });
-  };
+  var prompt = createPrompt();
 
   var loading = new blessed.Box({
     parent: screen,
@@ -759,24 +714,23 @@ function start(opt, callback) {
         screen.removeListener('mouse', fn);
         end();
       });
-    }, 1000);
+    }, 10);
   };
 
   return info._.showWelcome();
 }
 
-function auth(callback) {
-  if (jitsu.config.get('username') && jitsu.config.get('password')) {
-    return jitsu.users.view(jitsu.config.get('username'), function(err, user) {
-      return jitsu.apps.list(function(err, apps) {
-        return callback(null, user, apps);
-      });
-    });
+function createPrompt() {
+  var screen = blessed.Screen.global || new blessed.Screen
+    , prompt = createPrompt.prompt;
+
+  if (prompt) {
+    prompt.detach();
+    screen.append(prompt);
+    return prompt;
   }
 
-  var screen = blessed.Screen.global || new blessed.Screen;
-
-  var prompt = new blessed.Box({
+  prompt = createPrompt.prompt = new blessed.Box({
     parent: screen,
     hidden: true,
     content: '',
@@ -845,6 +799,20 @@ function auth(callback) {
     });
   };
 
+  return prompt;
+}
+
+function auth(callback) {
+  if (jitsu.config.get('username') && jitsu.config.get('password')) {
+    return jitsu.users.view(jitsu.config.get('username'), function(err, user) {
+      return jitsu.apps.list(function(err, apps) {
+        return callback(null, user, apps);
+      });
+    });
+  }
+
+  var prompt = createPrompt();
+
   function typeUsername(callback) {
     if (jitsu.config.get('username')) return callback();
     return prompt._.type('Type your username:', callback);
@@ -859,25 +827,45 @@ function auth(callback) {
     });
   }
 
-  return typeUsername(function(err, input) {
-    if (input) jitsu.config.set('username', input);
-    return typePassword(function(err, input) {
-      if (input) jitsu.config.set('password', input);
+  return typeUsername(function(err, username) {
+    if (username) jitsu.config.set('username', username);
+    return typePassword(function(err, password) {
+      if (password) jitsu.config.set('password', password);
       prompt.detach();
       return jitsu.auth(function(err) {
-        //if (err) return error._.show(err.message + '');
         return jitsu.config.save(function (err) {
-          //if (err) return error._.show(err.message + '');
-          return jitsu.users.view(jitsu.config.get('username'), function(err, user_) {
-            //if (err) return error._.show(err.message + '');
+          return jitsu.users.view(username, function(err, user_) {
             return jitsu.apps.list(function(err, apps_) {
-              //if (err) return error._.show(err.message + '');
               return callback(null, user_, apps_);
             });
           });
         });
       });
     });
+  });
+}
+
+function signup(callback) {
+  var prompt = createPrompt();
+  return prompt._.type('Type your username:', function(err, username) {
+    return prompt._.type('Type your email:', function(err, email) {
+      prompt._.input.secret = true;
+      return prompt._.type('Type your password:', function(err, password) {
+        prompt._.input.secret = false;
+        return callback(null, {
+          username: username,
+          email: email,
+          password: password
+        });
+      });
+    });
+  });
+}
+
+function confirm(callback) {
+  var prompt = createPrompt();
+  return prompt._.type('Activation key:', function(err, key) {
+    return callback(err, key);
   });
 }
 
