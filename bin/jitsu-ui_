@@ -8,77 +8,16 @@
  * Modules
  */
 
-var _argv = process.argv.slice();
-process.argv = process.argv.slice(0, 2);
-
-if (~_argv.indexOf('--mock')) {
-  process.env.NODE_ENV = 'test';
-}
-
-var require = require('../lib/debug')(require);
-
-var child_process = require('child_process')
-  , spawn = child_process.spawn
-  , exec = child_process.execFile
-  , path = require('path')
-  , util = require('util')
-  , fs = require('fs')
-  , EventEmitter = require('events').EventEmitter
+var fs = require('fs')
   , blessed = require('blessed')
-  , jitsu
+  , napi = require('nodejitsu-api')
+  , api
+  , config
   , opt;
 
-/**
- * Jitsu Cache
- */
-
-function jitsuHooks() {
-  jitsu._cache = {};
-
-  jitsu._collectGarbage = function() {
-    if (this._gc) {
-      clearTimeout(this._gc);
-      delete this._gc;
-    }
-
-    this._gc = setTimeout(function() {
-      jitsu._cache = {};
-    }, 5 * 1000);
-
-    if (this._gc.unref) {
-      this._gc.unref();
-    }
-
-    return this._gc;
-  };
-
-  jitsu.apps._view = jitsu.apps.view;
-  jitsu.apps.view = function() {
-    var args = Array.prototype.slice.call(arguments)
-      , callback = args.pop()
-      , hash = JSON.stringify(args);
-
-    if (jitsu._cache[hash]) {
-      return callback(null, jitsu._cache[hash]);
-    }
-
-    jitsu._collectGarbage();
-
-    args.push(function(err, result) {
-      jitsu._collectGarbage();
-      if (result) {
-        jitsu._cache[hash] = result;
-      }
-      return callback.apply(null, arguments);
-    });
-
-    return jitsu.apps._view.apply(jitsu.apps, args);
-  };
-}
-
-function start(opt, callback) {
-  var user = opt.user
-    , apps = opt.apps
+function start(data, callback) {
+  var user = data.user
+    , apps = data.apps
     , app;
 
   var longest = 0;
@@ -88,7 +27,7 @@ function start(opt, callback) {
     }
   });
 
-  opt._user = {
+  data._user = {
     username: user.username,
     status: user.status || 'unknown',
     email: user.email,
@@ -131,7 +70,7 @@ function start(opt, callback) {
         return total + drones;
       }, 0),
       limit: (function() {
-        var subs = opt.user.billing && opt.user.billing.subscriptions;
+        var subs = data.user.billing && data.user.billing.subscriptions;
         if (!subs) return 0;
 
         var sub = Object.keys(subs).map(function(key) {
@@ -166,8 +105,8 @@ function start(opt, callback) {
     }
   };
 
-  opt._apps = apps.map(function(app) {
-    var cfg = (app.config ? app.config.cloud : null) || [],
+  data._apps = apps.map(function(app) {
+    var cfg = (app.config ? app.config.cloud : null) || [];
     cfg = cfg[0] || {};
     return {
       //_id: app._id,
@@ -206,7 +145,7 @@ function start(opt, callback) {
         return out;
       })(),
       plan: (function () {
-        var user = opt.user;
+        var user = data.user;
 
         if (!app.subscriptionId) {
           return 'none (null)';
@@ -283,7 +222,7 @@ function start(opt, callback) {
     //underline: true,
     bg: 'lightblack',
     align: 'right',
-    content: opt.user.username
+    content: data.user.username
   });
 
   // TODO: Maybe make a horizontal list.
@@ -350,9 +289,15 @@ function start(opt, callback) {
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
-      return jexec(['deploy', response], function(err) {
+      response = response.replace(/^~/, process.env.HOME);
+      var cwd = process.cwd();
+      process.chdir(response);
+      return;
+      return jitsu.commands.deploy(function(err) {
+        process.chdir(cwd);
+        if (err) return error._.show(err.message);
+        // refreshMain();
         loading._.stop();
-        if (err) error._.show(err);
       });
     });
   };
@@ -363,6 +308,11 @@ function start(opt, callback) {
     if (opt.debug) {
       return setTimeout(loading._.stop, 5000);
     }
+    return api.apps.start(app.name, function(err) {
+      if (err) return error._.show(err.message);
+      // refreshMain();
+      loading._.stop();
+    });
   };
 
   bar._.stop._.callback = function() {
@@ -371,6 +321,11 @@ function start(opt, callback) {
     if (opt.debug) {
       return setTimeout(loading._.stop, 5000);
     }
+    return api.apps.stop(app.name, function(err) {
+      if (err) return error._.show(err.message);
+      // refreshMain();
+      loading._.stop();
+    });
   };
 
   bar._.restart._.callback = function() {
@@ -379,6 +334,11 @@ function start(opt, callback) {
     if (opt.debug) {
       return setTimeout(loading._.stop, 5000);
     }
+    return api.apps.restart(app.name, function(err) {
+      if (err) return error._.show(err.message);
+      // refreshMain();
+      loading._.stop();
+    });
   };
 
   bar._.destroy._.callback = function() {
@@ -392,10 +352,19 @@ function start(opt, callback) {
       focused.focus();
       if (err) return error._.show(err.message);
       if (!response) return;
+      if (response !== user.username) {
+        error._.show('Bad username.');
+        return;
+      }
       loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+      return api.apps.destroy(app.name, function(err) {
+        if (err) return error._.show(err.message);
+        // refreshData();
+        loading._.stop();
+      });
     });
   };
 
@@ -408,16 +377,24 @@ function start(opt, callback) {
       focused.focus();
       if (err) return error._.show(err.message);
       if (!response) return;
+      if (!/^\d+$/.test(response)) {
+        return error._.show('Not a number.');
+      }
       loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+      return api.apps.setdrones(app.name, +response, function() {
+        if (err) return error._.show(err.message);
+        loading._.stop();
+        // refreshMain();
+      });
     });
   };
 
   bar._.logs._.callback = function() {
     if (!app) return error._.show('Not an app!');
-    return jitsu.logs.byApp(app.name, 20, function(err, results) {
+    return api.logs.byApp(app.name, 20, function(err, results) {
       var data = [];
 
       function sort(first, second) {
@@ -450,7 +427,7 @@ function start(opt, callback) {
 
   bar._.snapshots._.callback = function() {
     if (!app) return error._.show('Not an app!');
-    return jitsu.snapshots.list(app.name, function(err, snapshots) {
+    return api.snapshots.list(app.name, function(err, snapshots) {
       var data = snapshots.map(function(snapshot) {
         return snapshot.id
           + ' - '
@@ -463,14 +440,17 @@ function start(opt, callback) {
 
       screen.render();
 
-      mainList.once('action', function(el, index) {
-        if (!el) return;
+      mainList.once('action', function fn(el, index) {
+        if (!el) {
+          mainList.removeListener('action', fn);
+          return;
+        }
         var i = data.indexOf(el.content);
         loading._.load('Snapshot is being {blue-fg}activated{/}. Please wait...');
         if (opt.debug) {
           return setTimeout(loading._.stop, 5000);
         }
-        return jitsu.snapshots.activate(app.name, snapshots[i].id, function(err) {
+        return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
           if (err) error._.show(err.message);
           loading._.stop();
         });
@@ -480,7 +460,7 @@ function start(opt, callback) {
 
   bar._.env._.callback = function() {
     if (!app) return error._.show('Not an app!');
-    return jitsu.apps.view(app.name, function(err, app) {
+    return api.apps.view(app.name, function(err, app) {
       var env = app.env || {}
         , data = [];
 
@@ -493,8 +473,11 @@ function start(opt, callback) {
 
       screen.render();
 
-      mainList.once('action', function(el, index) {
-        if (!el) return;
+      mainList.on('action', function fn(el, index) {
+        if (!el) {
+          mainList.removeListener('action', fn);
+          return;
+        }
         var i = data.indexOf(el.content)
           , parts = data[i].split('=')
           , key = parts[0]
@@ -510,7 +493,7 @@ function start(opt, callback) {
           if (opt.debug) {
             return setTimeout(loading._.stop, 5000);
           }
-          return jitsu.apps.update(app.name, body, function(err) {
+          return api.apps.update(app.name, body, function(err) {
             if (err) error._.show(err.message);
             loading._.stop();
           });
@@ -548,10 +531,10 @@ function start(opt, callback) {
       app = null;
       if (side.selected === 0) {
         main.childBase = 0; // TODO: Maybe automate this.
-        main.setContent(formatMain({ fix: true }, opt._user, main.width));
+        main.setContent(formatMain({ fix: true }, data._user, main.width));
       }
     } else {
-      app = opt._apps[side.selected - 1];
+      app = data._apps[side.selected - 1];
       main.childBase = 0; // TODO: Maybe automate this.
       main.setContent(formatMain({ fix: true }, app, main.width));
     }
@@ -795,17 +778,103 @@ function createPrompt() {
       prompt.hide();
       prompt._.okay.removeListener('press', okay);
       prompt._.cancel.removeListener('press', cancel);
+      //screen.render();
       return callback(err, data);
     });
+    screen.render();
   };
 
   return prompt;
 }
 
+function createQuestion() {
+  var screen = blessed.Screen.global || new blessed.Screen
+    , question = createQuestion.question;
+
+  if (question) {
+    question.detach();
+    screen.append(question);
+    return question;
+  }
+
+  question = createQuestion.question = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    content: '',
+    width: 'half',
+    height: 5,
+    left: 'center',
+    top: 'center',
+    border: {
+      type: 'ascii'
+    },
+    tags: true
+  });
+
+  question._.okay = new blessed.Button({
+    parent: question,
+    top: 3,
+    height: 1,
+    left: 2,
+    width: 6,
+    content: 'Okay',
+    align: 'center',
+    bg: 'black'
+  });
+
+  question._.cancel = new blessed.Button({
+    parent: question,
+    top: 3,
+    height: 1,
+    shrink: true,
+    left: 10,
+    width: 8,
+    content: 'Cancel',
+    align: 'center',
+    bg: 'black'
+  });
+
+  question._.ask = function(text, callback) {
+    var press, okay, cancel;
+    question.show();
+    question.setContent(text);
+    screen.on('keypress', press = function(ch, key) {
+      if (key.name === 'mouse') return;
+      if (key.name !== 'enter'
+          && key.name !== 'escape'
+          && key.name !== 'q'
+          && key.name !== 'y'
+          && key.name !== 'n') {
+        return;
+      }
+      done(null, key.name === 'enter' || key.name === 'y');
+    });
+    question._.okay.on('press', okay = function() {
+      done(null, true);
+    });
+    question._.cancel.on('press', cancel = function() {
+      done(null, false);
+    });
+    function done(err, data) {
+      question.hide();
+      screen.removeListener('keypress', press);
+      question._.okay.removeListener('press', okay);
+      question._.cancel.removeListener('press', cancel);
+      //screen.render();
+      return callback(err, data);
+    }
+    screen.render();
+  };
+
+  return question;
+}
+
 function auth(callback) {
-  if (jitsu.config.get('username') && jitsu.config.get('password')) {
-    return jitsu.users.view(jitsu.config.get('username'), function(err, user) {
-      return jitsu.apps.list(function(err, apps) {
+  if (config['username'] && config['password']) {
+    return api.users.view(config['username'], function(err, user) {
+      if (err) return callback(err);
+      return api.apps.list(function(err, apps) {
+        if (err) return callback(err);
         return callback(null, user, apps);
       });
     });
@@ -814,28 +883,61 @@ function auth(callback) {
   var prompt = createPrompt();
 
   function typeUsername(callback) {
-    if (jitsu.config.get('username')) return callback();
+    if (config['username']) return callback();
     return prompt._.type('Type your username:', callback);
   }
 
   function typePassword(callback) {
-    if (jitsu.config.get('password')) return callback();
+    if (config['password']) return callback();
     prompt._.input.secret = true;
     return prompt._.type('Type your password:', function(err, result) {
       prompt._.input.secret = false;
+      if (err) return callback(err);
       return callback(err, result);
     });
   }
 
-  return typeUsername(function(err, username) {
-    if (username) jitsu.config.set('username', username);
-    return typePassword(function(err, password) {
-      if (password) jitsu.config.set('password', password);
-      prompt.detach();
-      return jitsu.auth(function(err) {
-        return jitsu.config.save(function (err) {
-          return jitsu.users.view(username, function(err, user_) {
-            return jitsu.apps.list(function(err, apps_) {
+  return signup(function(err, data) {
+    if (err) return callback(err);
+
+    if (data) {
+      config['username'] = data['username'];
+      config['password'] = data['password'];
+      return api.users.create(data, function(err) {
+        if (err) return callback(err);
+        return confirm(function(err, key) {
+          if (err) return callback(err);
+          data['inviteCode'] = key;
+          return api.users.confirm(data, function(err) {
+            if (err) return callback(err);
+            return api.users.auth(function(err, success) {
+              if (err) return callback(err);
+              return api.users.view(config['username'], function(err, user_) {
+                if (err) return callback(err);
+                return api.apps.list(function(err, apps_) {
+                  if (err) return callback(err);
+                  return callback(null, user_, apps_);
+                });
+              });
+            });
+          });
+        });
+      });
+    }
+
+    return typeUsername(function(err, username) {
+      if (err) return callback(err);
+      if (username) config['username'] = username;
+      return typePassword(function(err, password) {
+        if (err) return callback(err);
+        if (password) config['password'] = password;
+        prompt.detach();
+        return api.users.auth(function(err, success) {
+          if (err) return callback(err);
+          return api.users.view(username, function(err, user_) {
+            if (err) return callback(err);
+            return api.apps.list(function(err, apps_) {
+              if (err) return callback(err);
               return callback(null, user_, apps_);
             });
           });
@@ -846,16 +948,25 @@ function auth(callback) {
 }
 
 function signup(callback) {
-  var prompt = createPrompt();
-  return prompt._.type('Type your username:', function(err, username) {
-    return prompt._.type('Type your email:', function(err, email) {
-      prompt._.input.secret = true;
-      return prompt._.type('Type your password:', function(err, password) {
-        prompt._.input.secret = false;
-        return callback(null, {
-          username: username,
-          email: email,
-          password: password
+  var question = createQuestion();
+  return question._.ask('Do you want to signup? (y/n)', function(err, result) {
+    question.detach();
+    if (err) return callback(err);
+    if (!result) return callback();
+    var prompt = createPrompt();
+    return prompt._.type('Type your username:', function(err, username) {
+      if (err) return callback(err);
+      return prompt._.type('Type your email:', function(err, email) {
+        if (err) return callback(err);
+        prompt._.input.secret = true;
+        return prompt._.type('Type your password:', function(err, password) {
+          prompt._.input.secret = false;
+          if (err) return callback(err);
+          return callback(null, {
+            username: username,
+            email: email,
+            password: password
+          });
         });
       });
     });
@@ -955,7 +1066,6 @@ function parseArg(argv) {
         options.debug = true;
         break;
       case '--mock':
-        process.env.NODE_ENV = 'test';
         options.mock = true;
         break;
       default:
@@ -972,73 +1082,62 @@ function help() {
   return process.exit(0);
 }
 
-function poll(options, callback) {
-  options = options || {};
-  callback = callback || function() {};
+function setup() {
+  opt.userconfig = opt.userconfig || process.env.HOME + '/.jitsuconf';
 
-  return jitsu.apps.list(function(err, apps) {
-    if (err) return callback(err);
-
-    if (options.update !== false) {
-      opt.apps = opt.apps || [];
-      opt.apps.length = 0;
-      opt.apps.push.apply(opt.apps, apps);
-    }
-
-    return callback(null, {
-      apps: apps
-    });
-  });
-}
-
-function beginPoll() {
-  (function self() {
-    return poll({}, function() {
-      return setTimeout(self, 10 * 1000);
-    });
-  })();
-}
-
-function main(argv, jitsu_, callback) {
-  if (!callback) {
-    callback = jitsu_;
-    jitsu_ = null;
+  try {
+    config = JSON.parse(fs.readFileSync(opt.userconfig, 'utf8'));
+  } catch (e) {
+    config = {};
   }
 
-  opt = parseArg(argv);
-  jitsu = jitsu_ || require('jitsu');
+  if (!config.remoteUri) {
+    config.remoteUri = (config.protocol || 'https') + '://'
+      + (config.remoteHost || 'api.nodejitsu.com')
+      + (config.port ? ':' + config.port : '');
+  }
 
-  return jitsu.setup(function() {
-    jitsuHooks();
-    return auth(function(err, user, apps) {
-      if (err) return callback(err);
-
-      if (user) {
-        opt.user = user;
-        opt.user = opt.user.user || opt.user;
-      }
-
-      if (apps) {
-        opt.apps = apps;
-      }
-
-      return start(opt, function(err) {
-        if (err) return callback(err);
-        return callback();
-      });
+  if (~process.argv.indexOf('--mock')) {
+    api = require('../lib/debug');
+  } else {
+    api = {};
+    ['Users', 'Apps', 'Snapshots',
+     'Databases', 'Logs', 'Tokens'].forEach(function(key) {
+      var k = key.toLowerCase();
+      api[k] = new napi[key](config);
     });
-  });
+  }
 }
 
-function inspect(obj) {
-  return typeof obj !== 'string'
-    ? util.inspect(obj, false, 6, true)
-    : obj;
+function main(argv, callback) {
+  opt = parseArg(argv);
+
+  setup();
+
+  return auth(function(err, user, apps) {
+    if (err) return callback(err);
+
+    var data = {};
+
+    if (user) {
+      data.user = user;
+      data.user = data.user.user || data.user;
+    }
+
+    if (apps) {
+      data.apps = apps;
+    }
+
+    return start(data, function(err) {
+      if (err) return callback(err);
+      return callback();
+    });
+  });
 }
 
 if (!module.parent) {
   process.title = 'jitsu-ui';
-  main(_argv.slice(), function(err) {
+  main(process.argv.slice(), function(err) {
     if (err) throw err;
     return process.exit(0);
   });
