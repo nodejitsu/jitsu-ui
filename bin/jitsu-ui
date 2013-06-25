@@ -15,15 +15,772 @@ var fs = require('fs')
   , config
   , opt;
 
+function jitsu(args, cwd, callback) {
+  if (!callback) {
+    callback = cwd;
+    cwd = process.cwd();
+  }
+
+  var spawn = require('child_process').spawn;
+
+  var screen = createScreen();
+
+  screen.program.normalBuffer();
+  screen.program.showCursor();
+  var _listenedMouse = screen._listenedMouse;
+  if (screen._listenedMouse) {
+    screen.program.disableMouse();
+  }
+
+  var write = process.stdout.write;
+  process.stdout.write = function() {};
+
+  try {
+    process.stdin.pause();
+  } catch (e) {
+    ;
+  }
+
+  var resume = function() {
+    try {
+      process.stdin.resume();
+    } catch (e) {
+      ;
+    }
+    process.stdout.write = write;
+
+    screen.program.alternateBuffer();
+    screen.program.hideCursor();
+    if (_listenedMouse) {
+      screen.program.enableMouse();
+    }
+    screen.alloc();
+    screen.render();
+  };
+
+  var ps = spawn('jitsu', args, {
+    stdio: 'inherit',
+    env: process.env,
+    cwd: cwd
+  });
+
+  ps.on('error', function(err) {
+    resume();
+    return callback(err, false);
+  });
+
+  ps.on('exit', function(code) {
+    resume();
+    return callback(null, code === 0);
+  });
+}
+
 function start(data, callback) {
   var user = data.user
     , apps = data.apps
     , app;
 
-  var longest = 0;
+  handleData(data);
+
+  function refreshData(callback) {
+    return auth(function(err, user, apps) {
+      if (user) {
+        data.user = user;
+        data.user = data.user.user || data.user;
+      }
+
+      if (apps) {
+        data.apps = apps;
+      }
+
+      handleData(data);
+
+      side.setItems(['user'].concat(data.apps.map(function(app) {
+        return app.name;
+      })));
+
+      side.emit('scroll');
+
+      return callback();
+    });
+  }
+
+  var screen = createScreen();
+
+  var side = new blessed.List({
+    parent: screen,
+    mouse: true,
+    keys: true,
+    vi: true,
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: data.longest + 2,
+    selectedBg: 'blue',
+    items: ['user'].concat(apps.map(function(app) {
+      return app.name;
+    }))
+  });
+
+  var sep = new blessed.Line({
+    parent: screen,
+    orientation: 'vertical',
+    left: data.longest + 2,
+    top: 0,
+    bottom: 0
+  });
+
+  var main = new blessed.ScrollableText({
+    parent: screen,
+    mouse: true,
+    keys: true,
+    vi: true,
+    tags: true,
+    left: data.longest + 4,
+    //top: 1,
+    //bottom: 0,
+    top: 0,
+    bottom: 1,
+    right: 0
+  });
+
+  // TODO: Allow chidlren elements to be scrollable in ScrollableBox *along* with content.
+  // Maybe auto-position elements in ScrollableBox, or AutoScrollableBox.
+
+  var bar = new blessed.Box({
+    parent: screen,
+    left: data.longest + 3,
+    right: 0,
+    //top: 0,
+    bottom: 0,
+    height: 1,
+    //underline: true,
+    bg: 'lightblack',
+    align: 'right',
+    content: data.user.username
+  });
+
+  // TODO: Maybe make a horizontal list.
+  var drawn = 0;
+  var commands = [
+    'deploy',
+    //'view',
+    'destroy',
+    'start',
+    'restart',
+    'stop',
+    'setdrones',
+    'logs',
+    'snapshots',
+    'env',
+    'cloud',
+    'browse'
+  ];
+  commands.forEach(function(text, i) {
+    var t = ++i + '-' + text;
+    bar._[text] = new blessed.Button({
+      parent: bar,
+      top: 0,
+      left: drawn + 1,
+      bg: 'blue',
+      height: 1,
+      content: t,
+      //shrink: true
+      width: t.length + 2,
+      //underline: true,
+      align: 'center'
+    });
+    bar._[text].on('press', function(ch, key) {
+      if (bar._[text]._.callback) {
+        bar._[text]._.callback();
+      }
+    });
+    drawn += t.length + 3;
+  });
+
+  screen.on('keypress', function(ch) {
+    if (ch >= '0' && ch <= '9') {
+      var i = ch === '0' ? 9 : ch - 1
+        , command = commands[i];
+      if (!command || !bar._[command]) return;
+      if (bar._[command]._.callback) {
+        bar._[command]._.callback();
+      }
+    }
+  });
+
+  bar._.deploy._.callback = function(all) {
+    if (!app) return msg._.error('Not an app!');
+    var cwd = process.cwd().replace(process.env.HOME, '~');
+    if (cwd[cwd.length-1] !== '/') cwd += '/';
+    var focused = screen.focused;
+    bar._.deploy.focus();
+    // TODO: Cache the received value and save it to disk.
+    return prompt._.type('Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})', cwd, function(err, response) {
+      focused.focus();
+      //bar._.deploy.focus();
+      if (err) return msg._.error(err.message);
+      if (!response) return;
+      loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      response = response.replace(/^~/, process.env.HOME);
+
+      function deploy(callback) {
+        var args = ['deploy'];
+        if (!all) {
+          return jitsu(args, response, callback);
+        } else {
+          return getCloud(app, function(err, cloud) {
+            args.push(cloud.datacenter);
+            args.push(cloud.provider);
+            args.push(cloud.drones);
+            args.push(cloud.ram);
+            return jitsu(args, response, callback);
+          });
+        }
+      }
+
+      // return getCloud(app, function(err, cloud) {
+      return jitsu(['deploy'], response, function(err, success) {
+        if (err) {
+          loading._.stop();
+          return msg._.error(err.message);
+        }
+
+        if (!success) {
+          loading._.stop();
+          return msg._.error('Deploy was not successful.');
+        }
+
+        return refreshData(function() {
+          loading._.stop();
+        });
+      });
+/*
+      // return getCloud(app, function(err, cloud) {
+      // NOTE: Probably not worth rewriting jitsu's entire deploy function.
+      //return tarball(response, function(err, filename) {
+      return api.snapshots.create(app.name, snapshotName, filename, function(err) {
+      //return api.snapshots.activate(app.name, snapshotName, function(err) {
+      //merge local with remote
+      //return api.apps.update(app, function(err) {
+      //return api.apps.start(app.name, function(err) {
+        if (err) {
+          loading._.stop();
+          return msg._.error(err.message);
+        }
+        return refreshData(function() {
+          loading._.stop();
+        });
+      });
+*/
+    });
+  };
+
+  bar._.start._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    loading._.load('App is being {blue-fg}started{/}. Please wait...');
+    if (opt.debug) {
+      return setTimeout(loading._.stop, 5000);
+    }
+    // return getCloud(app, function(err, cloud) {
+    return api.apps.start(app.name, function(err) {
+      if (err) {
+        loading._.stop();
+        return msg._.error(err.message);
+      }
+      return refreshData(function() {
+        loading._.stop();
+      });
+    });
+  };
+
+  bar._.cloud._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+
+    return getCloud(app, function(err, cloud) {
+      loading._.load('App is being {blue-fg}updated{/}. Please wait...');
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      return api.apps.endpoints(function(err, endpoints) {
+        if (err) {
+          loading._.stop();
+          return msg._.error(err.message);
+        }
+        return api.apps.datacenter(app.name, cloud, function(err) {
+          if (err) {
+            loading._.stop();
+            return msg._.error(err.message);
+          }
+          return refreshData(function() {
+            var tld = endpoints[cloud.provider][cloud.datacenter];
+            loading._.stop();
+            msg._.log('Running on http://' + app.subdomain + tld.replace('api', ''));
+          });
+        });
+      });
+    });
+  };
+
+  bar._.stop._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
+    if (opt.debug) {
+      return setTimeout(loading._.stop, 5000);
+    }
+    return api.apps.stop(app.name, function(err) {
+      if (err) {
+        loading._.stop();
+        return msg._.error(err.message);
+      }
+      return refreshData(function() {
+        loading._.stop();
+      });
+    });
+  };
+
+  bar._.restart._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
+    if (opt.debug) {
+      return setTimeout(loading._.stop, 5000);
+    }
+    return api.apps.restart(app.name, function(err) {
+      if (err) {
+        loading._.stop();
+        return msg._.error(err.message);
+      }
+      return refreshData(function() {
+        loading._.stop();
+      });
+    });
+  };
+
+  bar._.destroy._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    var text = 'Are you sure you want to destroy this?'
+      + ' If so, type your username.';
+    var focused = screen.focused;
+    bar._.destroy.focus();
+    return prompt._.type(text, function(err, response) {
+      //bar._.destroy.focus();
+      focused.focus();
+      if (err) return msg._.error(err.message);
+      if (!response) return;
+      if (response !== user.username) {
+        msg._.error('Bad username.');
+        return;
+      }
+      loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      return api.apps.destroy(app.name, function(err) {
+        if (err) {
+          loading._.stop();
+          return msg._.error(err.message);
+        }
+        return refreshData(function() {
+          loading._.stop();
+        });
+      });
+    });
+  };
+
+  bar._.setdrones._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    var focused = screen.focused;
+    bar._.setdrones.focus();
+    return prompt._.type('Set drones:', app.maxDrones + '', function(err, response) {
+      //bar._.setdrones.focus();
+      focused.focus();
+      if (err) return msg._.error(err.message);
+      if (!response) return;
+      if (!/^\d+$/.test(response)) {
+        return msg._.error('Not a number.');
+      }
+      loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      return api.apps.setDrones(app.name, +response, function() {
+        if (err) {
+          loading._.stop();
+          return msg._.error(err.message);
+        }
+        return refreshData(function() {
+          loading._.stop();
+        });
+      });
+    });
+  };
+
+  bar._.logs._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+
+    var time;
+
+    (function poll() {
+      return api.logs.byApp(app.name, 20, function(err, results) {
+        results = results || {};
+        results.data = results.data || [];
+
+        var data = [];
+
+        function sort(first, second) {
+          return new Date(first.timestamp) - new Date(second.timestamp);
+        }
+
+        results.data.sort(sort).forEach(function(log) {
+          if (log.json && log.json.message != null) {
+            log.json.message.split('\n').forEach(function (line) {
+              data.push({
+                date: new Date(log.timestamp),
+                message: line,
+                text: new Date(log.timestamp).toUTCString() + ' - ' + line
+              });
+            });
+          }
+        });
+
+        data = data.map(function(log) {
+          return log.text;
+        });
+
+        if (!data.length) data.push('--- No logs. ---');
+
+        mlist._.show(data);
+
+        screen.render();
+
+        time = setTimeout(poll, 10 * 1000);
+      });
+    })();
+
+    mlist.on('action', function fn(el, index) {
+      if (!el) {
+        if (time) clearTimeout(time);
+        mlist.removeListener('action', fn);
+        return;
+      }
+    });
+  };
+
+  bar._.snapshots._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    return api.snapshots.list(app.name, function(err, snapshots) {
+      var data = snapshots.map(function(snapshot) {
+        return snapshot.id
+          + ' - '
+          + snapshot.filename
+          + ' - '
+          + new Date(snapshot.ctime).toUTCString();
+      });
+
+      mlist._.show(data);
+
+      screen.render();
+
+      mlist.once('action', function fn(el, index) {
+        if (!el) {
+          mlist.removeListener('action', fn);
+          return;
+        }
+        var i = data.indexOf(el.content);
+        loading._.load('Snapshot is being {blue-fg}activated{/}. Please wait...');
+        if (opt.debug) {
+          return setTimeout(loading._.stop, 5000);
+        }
+        return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
+          if (err) msg._.error(err.message);
+          loading._.stop();
+        });
+      });
+    });
+  };
+
+  bar._.env._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    return api.apps.view(app.name, function(err, app) {
+      var env = app.env || {}
+        , data = [];
+
+      Object.keys(env).forEach(function(key) {
+        data.push(key + '=' + env[key]);
+      });
+
+
+      mlist._.show(data);
+
+      screen.render();
+
+      mlist.on('action', function fn(el, index) {
+        if (!el) {
+          mlist.removeListener('action', fn);
+          return;
+        }
+        var i = data.indexOf(el.content)
+          , parts = data[i].split('=')
+          , key = parts[0]
+          , val = parts[1];
+
+        return prompt._.type('Value of ' + key + ':', val, function(err, response) {
+          mlist.focus();
+          if (err) return msg._.error(err.message);
+          if (!response) return;
+          var body = {};
+          body[key] = response === '' ? null : response;
+          loading._.load('Environment variable is being {blue-fg}set{/}. Please wait...');
+          if (opt.debug) {
+            return setTimeout(loading._.stop, 5000);
+          }
+          return api.apps.update(app.name, body, function(err) {
+            if (err) {
+              loading._.stop();
+              return msg._.error(err.message);
+            }
+          });
+        });
+      });
+    });
+  };
+
+  bar._.browse._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    try {
+      require('opener')('https://'
+        + (app.domain
+        || (app.domains && app.domains[0])
+        || (app.subdomain + '.jit.su')));
+    } catch (e) {
+      jitsu(['apps', 'browse', app.name], function() {
+        ;
+      });
+    }
+  };
+
+  screen.on('element focus', function(old, cur) {
+    if (old._bg) old.bg = old._bg;
+    if (cur instanceof blessed.Button) {
+      cur._bg = cur.bg;
+      cur.bg = 1;
+    }
+    screen.render();
+  });
+
+  screen.on('keypress', function(ch, key) {
+    if (key.name === 'tab') {
+      if (!key.shift) {
+        screen.focusNext();
+      } else {
+        screen.focusPrev();
+      }
+      screen.render();
+      return;
+    }
+    if (key.name === 'escape') {
+      return process.exit(0);
+    }
+  });
+
+  side.on('scroll', function() {
+    if (side.selected < 1) {
+      app = null;
+      if (side.selected === 0) {
+        main.childBase = 0; // TODO: Maybe automate this.
+        main.setContent(formatMain({ fix: true }, data._user, main.width));
+      }
+    } else {
+      app = data._apps[side.selected - 1];
+      main.childBase = 0; // TODO: Maybe automate this.
+      main.setContent(formatMain({ fix: true }, app, main.width));
+    }
+    screen.render();
+  });
+
+  side.select(0);
+  side.focus();
+
+  var mlist = new blessed.List({
+    parent: screen,
+    left: main.left,
+    top: main.top,
+    bottom: main.bottom,
+    right: main.right,
+    hidden: true,
+    selectedBg: 'blue',
+    mouse: true,
+    keys: true,
+    vi: true
+  });
+
+  mlist._.show = function(data, focused) {
+    screen.saveFocus();
+    mlist.show();
+    mlist.setItems(data);
+    mlist.select(0);
+    mlist.focus();
+  };
+
+  mlist.on('cancel', function() {
+    mlist.hide();
+    screen.restoreFocus();
+    screen.render();
+  });
+
+  var prompt = createPrompt();
+
+  var loading = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 'half',
+    height: 4,
+    border: {
+      type: 'ascii'
+    },
+    tags: true,
+    align: 'center'
+  });
+
+  loading._.icon = new blessed.Text({
+    parent: loading,
+    align: 'center',
+    top: 2,
+    left: 1,
+    right: 1,
+    height: 1,
+    content: '|'
+  });
+
+  loading._.load = function(text) {
+    loading.show();
+    loading.setContent(text);
+    if (loading._.timer) {
+      loading._.stop();
+    }
+    screen.lockKeys = true;
+    loading._.timer = setInterval(function() {
+      if (loading._.icon.content === '|') {
+        loading._.icon.setContent('/');
+      } else if (loading._.icon.content === '/') {
+        loading._.icon.setContent('-');
+      } else if (loading._.icon.content === '-') {
+        loading._.icon.setContent('\\');
+      } else if (loading._.icon.content === '\\') {
+        loading._.icon.setContent('|');
+      }
+      screen.render();
+    }, 200);
+  };
+
+  loading._.stop = function() {
+    screen.lockKeys = false;
+    loading.hide();
+    if (loading._.timer) {
+      clearInterval(loading._.timer);
+      delete loading._.timer;
+    }
+    screen.render();
+  };
+
+  var msg = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 'half',
+    tags: true,
+    align: 'center',
+    shrink: true,
+    border: {
+      type: 'ascii'
+    }
+  });
+
+  msg._.show = function(text, time, callback) {
+    if (typeof time === 'function') {
+      callback = time;
+      time = null;
+    }
+    time = time || 3;
+    msg.show();
+    msg.setContent(text);
+    screen.render();
+    setTimeout(function() {
+      msg.hide();
+      screen.render();
+      if (callback) callback();
+    }, time * 1000);
+  };
+
+  msg._.log = msg._.show;
+
+  msg._.error = function(text, callback) {
+    return msg._.show('{red-fg}Error: ' + text + '{/}', callback);
+  };
+
+  var info = new blessed.Box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 'half',
+    tags: true,
+    shrink: true,
+    border: {
+      type: 'ascii'
+    }
+  });
+
+  info._.showWelcome = function(callback) {
+    info.show();
+
+    info.setContent('{center}{green-fg}Welcome to jitsu-ui.{/}\n'
+      + 'Press {blue-fg}Tab{/} and {blue-fg}Shift+Tab{/} to'
+      + ' focus between elements, buttons, and the scroll area. Use vi keys'
+      + ' and arrow keys to navigate within any element.{/center}\n'
+      + '{right}{red-fg}- Nodejitsu{/}{/right}');
+
+    screen.render();
+
+    function end() {
+      if (end.done) return;
+      end.done = true;
+      info.hide();
+      screen.render();
+      if (callback) callback();
+    }
+
+    setTimeout(function() {
+      screen.on('keypress', function fn(ch, key) {
+        if (key.name === 'mouse') return;
+        screen.removeListener('keypress', fn);
+        end();
+      });
+      screen.on('mouse', function fn(data) {
+        if (data.action === 'mousemove') return;
+        screen.removeListener('mouse', fn);
+        end();
+      });
+    }, 10);
+  };
+
+  return info._.showWelcome();
+}
+
+function handleData(data) {
+  var user = data.user
+    , apps = data.apps;
+
+  data.longest = 0;
   apps.forEach(function(app) {
-    if (app.name.length > longest) {
-      longest = app.name.length;
+    if (app.name.length > data.longest) {
+      data.longest = app.name.length;
     }
   });
 
@@ -169,542 +926,14 @@ function start(data, callback) {
       })()
     };
   });
+}
 
-  var screen = blessed.Screen.global || new blessed.Screen;
-
-  var side = new blessed.List({
-    parent: screen,
-    mouse: true,
-    keys: true,
-    vi: true,
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: longest + 2,
-    selectedBg: 'blue',
-    items: ['user'].concat(apps.map(function(app) {
-      return app.name;
-    }))
-  });
-
-  var sep = new blessed.Line({
-    parent: screen,
-    orientation: 'vertical',
-    left: longest + 2,
-    top: 0,
-    bottom: 0
-  });
-
-  var main = new blessed.ScrollableText({
-    parent: screen,
-    mouse: true,
-    keys: true,
-    vi: true,
-    tags: true,
-    left: longest + 4,
-    //top: 1,
-    //bottom: 0,
-    top: 0,
-    bottom: 1,
-    right: 0
-  });
-
-  // TODO: Allow chidlren elements to be scrollable in ScrollableBox *along* with content.
-  // Maybe auto-position elements in ScrollableBox, or AutoScrollableBox.
-
-  var bar = new blessed.Box({
-    parent: screen,
-    left: longest + 3,
-    right: 0,
-    //top: 0,
-    bottom: 0,
-    height: 1,
-    //underline: true,
-    bg: 'lightblack',
-    align: 'right',
-    content: data.user.username
-  });
-
-  // TODO: Maybe make a horizontal list.
-  var drawn = 0;
-  var commands = [
-    'deploy',
-    //'view',
-    'destroy',
-    'start',
-    'restart',
-    'stop',
-    'setdrones',
-    'logs',
-    'snapshots',
-    'env',
-    'cloud',
-    'browse'
-  ];
-  commands.forEach(function(text, i) {
-    var t = ++i + '-' + text;
-    bar._[text] = new blessed.Button({
-      parent: bar,
-      top: 0,
-      left: drawn + 1,
-      bg: 'blue',
-      height: 1,
-      content: t,
-      //shrink: true
-      width: t.length + 2,
-      //underline: true,
-      align: 'center'
-    });
-    bar._[text].on('press', function(ch, key) {
-      if (bar._[text]._.callback) {
-        bar._[text]._.callback();
-      }
-    });
-    drawn += t.length + 3;
-  });
-
-  screen.on('keypress', function(ch) {
-    if (ch >= '0' && ch <= '9') {
-      var i = ch === '0' ? 9 : ch - 1
-        , command = commands[i];
-      if (!command || !bar._[command]) return;
-      if (bar._[command]._.callback) {
-        bar._[command]._.callback();
-      }
-    }
-  });
-
-  bar._.deploy._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    var cwd = process.cwd().replace(process.env.HOME, '~');
-    if (cwd[cwd.length-1] !== '/') cwd += '/';
-    var focused = screen.focused;
-    bar._.deploy.focus();
-    return prompt._.type('Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})', cwd, function(err, response) {
-      focused.focus();
-      //bar._.deploy.focus();
-      if (err) return error._.show(err.message);
-      if (!response) return;
-      loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
-      response = response.replace(/^~/, process.env.HOME);
-      var cwd = process.cwd();
-      process.chdir(response);
-      return;
-      return jitsu.commands.deploy(function(err) {
-        process.chdir(cwd);
-        if (err) return error._.show(err.message);
-        // refreshMain();
-        loading._.stop();
-      });
-    });
-  };
-
-  bar._.start._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    loading._.load('App is being {blue-fg}started{/}. Please wait...');
-    if (opt.debug) {
-      return setTimeout(loading._.stop, 5000);
-    }
-    return api.apps.start(app.name, function(err) {
-      if (err) return error._.show(err.message);
-      // refreshMain();
-      loading._.stop();
-    });
-  };
-
-  bar._.stop._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
-    if (opt.debug) {
-      return setTimeout(loading._.stop, 5000);
-    }
-    return api.apps.stop(app.name, function(err) {
-      if (err) return error._.show(err.message);
-      // refreshMain();
-      loading._.stop();
-    });
-  };
-
-  bar._.restart._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
-    if (opt.debug) {
-      return setTimeout(loading._.stop, 5000);
-    }
-    return api.apps.restart(app.name, function(err) {
-      if (err) return error._.show(err.message);
-      // refreshMain();
-      loading._.stop();
-    });
-  };
-
-  bar._.destroy._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    var text = 'Are you sure you want to destroy this?'
-      + ' If so, type your username.';
-    var focused = screen.focused;
-    bar._.destroy.focus();
-    return prompt._.type(text, function(err, response) {
-      //bar._.destroy.focus();
-      focused.focus();
-      if (err) return error._.show(err.message);
-      if (!response) return;
-      if (response !== user.username) {
-        error._.show('Bad username.');
-        return;
-      }
-      loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
-      return api.apps.destroy(app.name, function(err) {
-        if (err) return error._.show(err.message);
-        // refreshData();
-        loading._.stop();
-      });
-    });
-  };
-
-  bar._.setdrones._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    var focused = screen.focused;
-    bar._.setdrones.focus();
-    return prompt._.type('Set drones:', app.maxDrones + '', function(err, response) {
-      //bar._.setdrones.focus();
-      focused.focus();
-      if (err) return error._.show(err.message);
-      if (!response) return;
-      if (!/^\d+$/.test(response)) {
-        return error._.show('Not a number.');
-      }
-      loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
-      return api.apps.setdrones(app.name, +response, function() {
-        if (err) return error._.show(err.message);
-        loading._.stop();
-        // refreshMain();
-      });
-    });
-  };
-
-  bar._.logs._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    return api.logs.byApp(app.name, 20, function(err, results) {
-      var data = [];
-
-      function sort(first, second) {
-        return new Date(first.timestamp) - new Date(second.timestamp);
-      }
-
-      results.data.sort(sort).forEach(function(log) {
-        if (log.json && log.json.message != null) {
-          log.json.message.split('\n').forEach(function (line) {
-            data.push({
-              date: new Date(log.timestamp),
-              message: line,
-              text: new Date(log.timestamp).toUTCString() + ' - ' + line
-            });
-          });
-        }
-      });
-
-      data = data.map(function(log) {
-        return log.text;
-      });
-
-      if (!data.length) data.push('--- No logs. ---');
-
-      mainList._.show(data);
-
-      screen.render();
-    });
-  };
-
-  bar._.snapshots._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    return api.snapshots.list(app.name, function(err, snapshots) {
-      var data = snapshots.map(function(snapshot) {
-        return snapshot.id
-          + ' - '
-          + snapshot.filename
-          + ' - '
-          + new Date(snapshot.ctime).toUTCString();
-      });
-
-      mainList._.show(data);
-
-      screen.render();
-
-      mainList.once('action', function fn(el, index) {
-        if (!el) {
-          mainList.removeListener('action', fn);
-          return;
-        }
-        var i = data.indexOf(el.content);
-        loading._.load('Snapshot is being {blue-fg}activated{/}. Please wait...');
-        if (opt.debug) {
-          return setTimeout(loading._.stop, 5000);
-        }
-        return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
-          if (err) error._.show(err.message);
-          loading._.stop();
-        });
-      });
-    });
-  };
-
-  bar._.env._.callback = function() {
-    if (!app) return error._.show('Not an app!');
-    return api.apps.view(app.name, function(err, app) {
-      var env = app.env || {}
-        , data = [];
-
-      Object.keys(env).forEach(function(key) {
-        data.push(key + '=' + env[key]);
-      });
-
-
-      mainList._.show(data);
-
-      screen.render();
-
-      mainList.on('action', function fn(el, index) {
-        if (!el) {
-          mainList.removeListener('action', fn);
-          return;
-        }
-        var i = data.indexOf(el.content)
-          , parts = data[i].split('=')
-          , key = parts[0]
-          , val = parts[1];
-
-        return prompt._.type('Value of ' + key + ':', val, function(err, response) {
-          mainList.focus();
-          if (err) return error._.show(err.message);
-          if (!response) return;
-          var body = {};
-          body[key] = response === '' ? null : response;
-          loading._.load('Environment variable is being {blue-fg}set{/}. Please wait...');
-          if (opt.debug) {
-            return setTimeout(loading._.stop, 5000);
-          }
-          return api.apps.update(app.name, body, function(err) {
-            if (err) error._.show(err.message);
-            loading._.stop();
-          });
-        });
-      });
-    });
-  };
-
-  screen.on('element focus', function(old, cur) {
-    if (old._bg) old.bg = old._bg;
-    if (cur instanceof blessed.Button) {
-      cur._bg = cur.bg;
-      cur.bg = 1;
-    }
-    screen.render();
-  });
-
-  screen.on('keypress', function(ch, key) {
-    if (key.name === 'tab') {
-      if (!key.shift) {
-        screen.focusNext();
-      } else {
-        screen.focusPrev();
-      }
-      screen.render();
-      return;
-    }
-    if (key.name === 'escape') {
-      return process.exit(0);
-    }
-  });
-
-  side.on('scroll', function() {
-    if (side.selected < 1) {
-      app = null;
-      if (side.selected === 0) {
-        main.childBase = 0; // TODO: Maybe automate this.
-        main.setContent(formatMain({ fix: true }, data._user, main.width));
-      }
-    } else {
-      app = data._apps[side.selected - 1];
-      main.childBase = 0; // TODO: Maybe automate this.
-      main.setContent(formatMain({ fix: true }, app, main.width));
-    }
-    screen.render();
-  });
-
-  side.select(0);
-  side.focus();
-
-  var mainList = new blessed.List({
-    parent: screen,
-    left: main.left,
-    top: main.top,
-    bottom: main.bottom,
-    right: main.right,
-    hidden: true,
-    selectedBg: 'blue',
-    mouse: true,
-    keys: true,
-    vi: true
-  });
-
-  mainList._.show = function(data, focused) {
-    screen.saveFocus();
-    mainList.show();
-    mainList.setItems(data);
-    mainList.select(0);
-    mainList.focus();
-  };
-
-  mainList.on('cancel', function() {
-    mainList.hide();
-    screen.restoreFocus();
-    screen.render();
-  });
-
-  var prompt = createPrompt();
-
-  var loading = new blessed.Box({
-    parent: screen,
-    hidden: true,
-    top: 'center',
-    left: 'center',
-    width: 'half',
-    height: 4,
-    border: {
-      type: 'ascii'
-    },
-    tags: true,
-    align: 'center'
-  });
-
-  loading._.icon = new blessed.Text({
-    parent: loading,
-    align: 'center',
-    top: 2,
-    left: 1,
-    right: 1,
-    height: 1,
-    content: '|'
-  });
-
-  loading._.load = function(text) {
-    loading.show();
-    loading.setContent(text);
-    if (loading._.timer) {
-      loading._.stop();
-    }
-    screen.lockKeys = true;
-    loading._.timer = setInterval(function() {
-      if (loading._.icon.content === '|') {
-        loading._.icon.setContent('/');
-      } else if (loading._.icon.content === '/') {
-        loading._.icon.setContent('-');
-      } else if (loading._.icon.content === '-') {
-        loading._.icon.setContent('\\');
-      } else if (loading._.icon.content === '\\') {
-        loading._.icon.setContent('|');
-      }
-      screen.render();
-    }, 200);
-  };
-
-  loading._.stop = function() {
-    screen.lockKeys = false;
-    loading.hide();
-    if (loading._.timer) {
-      clearInterval(loading._.timer);
-      delete loading._.timer;
-    }
-    screen.render();
-  };
-
-  var error = new blessed.Box({
-    parent: screen,
-    hidden: true,
-    top: 'center',
-    left: 'center',
-    width: 'half',
-    fg: 'red',
-    tags: true,
-    align: 'center',
-    shrink: true,
-    border: {
-      type: 'ascii'
-    }
-  });
-
-  error._.show = function(text, callback) {
-    error.show();
-    error.setContent('Error: ' + text);
-    screen.render();
-    setTimeout(function() {
-      error.hide();
-      screen.render();
-      if (callback) callback();
-    }, 3000);
-  };
-
-  var info = new blessed.Box({
-    parent: screen,
-    hidden: true,
-    top: 'center',
-    left: 'center',
-    width: 'half',
-    tags: true,
-    shrink: true,
-    border: {
-      type: 'ascii'
-    }
-  });
-
-  info._.showWelcome = function(callback) {
-    info.show();
-
-    info.setContent('{center}{green-fg}Welcome to jitsu-ui.{/}\n'
-      + 'Press {blue-fg}Tab{/} and {blue-fg}Shift+Tab{/} to'
-      + ' focus between elements, buttons, and the scroll area. Use vi keys'
-      + ' and arrow keys to navigate within any element.{/center}\n'
-      + '{right}{red-fg}- Nodejitsu{/}{/right}');
-
-    screen.render();
-
-    function end() {
-      if (end.done) return;
-      end.done = true;
-      info.hide();
-      screen.render();
-      if (callback) callback();
-    }
-
-    setTimeout(function() {
-      screen.on('keypress', function fn(ch, key) {
-        if (key.name === 'mouse') return;
-        screen.removeListener('keypress', fn);
-        end();
-      });
-      screen.on('mouse', function fn(data) {
-        if (data.action === 'mousemove') return;
-        screen.removeListener('mouse', fn);
-        end();
-      });
-    }, 10);
-  };
-
-  return info._.showWelcome();
+function createScreen() {
+  return blessed.Screen.global || new blessed.Screen({ tput: true });
 }
 
 function createPrompt() {
-  var screen = blessed.Screen.global || new blessed.Screen
+  var screen = createScreen()
     , prompt = createPrompt.prompt;
 
   if (prompt) {
@@ -788,7 +1017,7 @@ function createPrompt() {
 }
 
 function createQuestion() {
-  var screen = blessed.Screen.global || new blessed.Screen
+  var screen = createScreen()
     , question = createQuestion.question;
 
   if (question) {
@@ -869,9 +1098,31 @@ function createQuestion() {
   return question;
 }
 
+function getCloud(app, callback) {
+  var prompt = createPrompt()
+    , cloud = (app && app.config ? app.config.cloud : null) || [];
+
+  cloud = cloud[0] || {};
+
+  return prompt._.type('Datacenter?', cloud.datacenter || 'us-east-1', function(err, datacenter) {
+    return prompt._.type('Provider?', cloud.provider || 'joyent', function(err, provider) {
+      return prompt._.type('Drones?', cloud.drones || '1', function(err, drones) {
+        return prompt._.type('RAM?', cloud.ram || '256', function(err, ram) {
+          return callback(null, {
+            datacenter: datacenter || 'us-east-1',
+            provider: provider || 'joyent',
+            drones: +drones || 1,
+            ram: +ram || 256
+          });
+        });
+      });
+    });
+  });
+}
+
 function auth(callback) {
-  if (config['username'] && config['password']) {
-    return api.users.view(config['username'], function(err, user) {
+  if (config.username && (config.password || config.apiToken)) {
+    return api.users.view(config.username, function(err, user) {
       if (err) return callback(err);
       return api.apps.list(function(err, apps) {
         if (err) return callback(err);
@@ -883,12 +1134,12 @@ function auth(callback) {
   var prompt = createPrompt();
 
   function typeUsername(callback) {
-    if (config['username']) return callback();
+    if (config.username) return callback();
     return prompt._.type('Type your username:', callback);
   }
 
   function typePassword(callback) {
-    if (config['password']) return callback();
+    if (config.password) return callback();
     prompt._.input.secret = true;
     return prompt._.type('Type your password:', function(err, result) {
       prompt._.input.secret = false;
@@ -901,19 +1152,26 @@ function auth(callback) {
     if (err) return callback(err);
 
     if (data) {
-      config['username'] = data['username'];
-      config['password'] = data['password'];
+      config.username = data.username;
+      config.password = data.password;
       return api.users.create(data, function(err) {
         if (err) return callback(err);
         return confirm(function(err, key) {
           if (err) return callback(err);
-          data['inviteCode'] = key;
+          data.inviteCode = key;
           return api.users.confirm(data, function(err) {
             if (err) return callback(err);
             return api.users.auth(function(err, success) {
               if (err) return callback(err);
-              return api.users.view(config['username'], function(err, user_) {
+              if (!success) return callback(new Error('Bad login.'));
+              return api.users.view(config.username, function(err, user_) {
                 if (err) return callback(err);
+                config.apiToken = (user_.apiTokens || {})[config.apiTokenName || 'jitsu'];
+                if (config.apiToken) {
+                  config.apiTokenName = config.apiTokenName || 'jitsu';
+                  delete config.password;
+                }
+                // return save(function() {
                 return api.apps.list(function(err, apps_) {
                   if (err) return callback(err);
                   return callback(null, user_, apps_);
@@ -927,15 +1185,21 @@ function auth(callback) {
 
     return typeUsername(function(err, username) {
       if (err) return callback(err);
-      if (username) config['username'] = username;
+      if (username) config.username = username;
       return typePassword(function(err, password) {
         if (err) return callback(err);
-        if (password) config['password'] = password;
+        if (password) config.password = password;
         prompt.detach();
         return api.users.auth(function(err, success) {
           if (err) return callback(err);
           return api.users.view(username, function(err, user_) {
             if (err) return callback(err);
+            config.apiToken = (user_.apiTokens || {})[config.apiTokenName || 'jitsu'];
+            if (config.apiToken) {
+              config.apiTokenName = config.apiTokenName || 'jitsu';
+              delete config.password;
+            }
+            // return save(function() {
             return api.apps.list(function(err, apps_) {
               if (err) return callback(err);
               return callback(null, user_, apps_);
@@ -1082,55 +1346,85 @@ function help() {
   return process.exit(0);
 }
 
-function setup() {
+function setup(callback) {
   opt.userconfig = opt.userconfig || process.env.HOME + '/.jitsuconf';
 
-  try {
-    config = JSON.parse(fs.readFileSync(opt.userconfig, 'utf8'));
-  } catch (e) {
-    config = {};
+  function read(cb) {
+    if (!callback) {
+      try {
+        var data = fs.readFileSync(opt.userconfig, 'utf8');
+      } catch (e) {
+        return cb(e);
+      }
+      return cb(null, data);
+    }
+    return fs.readFile(opt.userconfig, 'utf8', cb);
   }
 
-  if (!config.remoteUri) {
-    config.remoteUri = (config.protocol || 'https') + '://'
-      + (config.remoteHost || 'api.nodejitsu.com')
-      + (config.port ? ':' + config.port : '');
-  }
+  //return fs.readFile(opt.userconfig, 'utf8', function(err, data) {
+  return read(function(err, data) {
+    try {
+      config = JSON.parse(data);
+    } catch (e) {
+      config = {};
+    }
 
-  if (~process.argv.indexOf('--mock')) {
-    api = require('../lib/debug');
-  } else {
-    api = {};
-    ['Users', 'Apps', 'Snapshots',
-     'Databases', 'Logs', 'Tokens'].forEach(function(key) {
-      var k = key.toLowerCase();
-      api[k] = new napi[key](config);
-    });
+    if (!config.remoteUri) {
+      config.remoteUri = (config.protocol || 'https') + '://'
+        + (config.remoteHost || 'api.nodejitsu.com')
+        + (config.port ? ':' + config.port : '');
+    }
+
+    if (~process.argv.indexOf('--mock')) {
+      api = require('../lib/debug');
+    } else {
+      api = {};
+      ['Users', 'Apps', 'Snapshots',
+       'Databases', 'Logs', 'Tokens'].forEach(function(key) {
+        var k = key.toLowerCase();
+        api[k] = new napi[key](config);
+      });
+    }
+
+    if (callback) return callback();
+  });
+}
+
+function save(callback) {
+  var data = JSON.stringify(config, null, 2);
+  if (!callback) {
+    try {
+      fs.writeFileSync(opt.userconfig, data);
+    } catch (e) {
+      ;
+    }
+    return;
   }
+  return fs.writeFile(opt.userconfig, data, callback);
 }
 
 function main(argv, callback) {
   opt = parseArg(argv);
 
-  setup();
-
-  return auth(function(err, user, apps) {
-    if (err) return callback(err);
-
-    var data = {};
-
-    if (user) {
-      data.user = user;
-      data.user = data.user.user || data.user;
-    }
-
-    if (apps) {
-      data.apps = apps;
-    }
-
-    return start(data, function(err) {
+  return setup(function() {
+    return auth(function(err, user, apps) {
       if (err) return callback(err);
-      return callback();
+
+      var data = {};
+
+      if (user) {
+        data.user = user;
+        data.user = data.user.user || data.user;
+      }
+
+      if (apps) {
+        data.apps = apps;
+      }
+
+      return start(data, function(err) {
+        if (err) return callback(err);
+        return callback();
+      });
     });
   });
 }
