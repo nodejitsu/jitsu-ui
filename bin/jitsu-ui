@@ -147,8 +147,6 @@ function start(data, callback) {
     vi: true,
     tags: true,
     left: data.longest + 4,
-    //top: 1,
-    //bottom: 0,
     top: 0,
     bottom: 1,
     right: 0
@@ -165,35 +163,20 @@ function start(data, callback) {
     screen.render();
   });
 
-  //main.on('keypress', function(ch, key) {
-  //  if (key.name === 'escape') {
-  //    side.focus();
-  //    screen.render();
-  //  }
-  //});
-
-  // TODO: Allow chidlren elements to be scrollable in ScrollableBox *along*
-  // with content. Maybe auto-position elements in ScrollableBox, or
-  // AutoScrollableBox.
-
   var bar = new blessed.Box({
     parent: screen,
     left: data.longest + 3,
     right: 0,
-    //top: 0,
     bottom: 0,
     height: 1,
-    //underline: true,
     bg: 'lightblack',
     align: 'right',
     content: data.user.username
   });
 
-  // TODO: Maybe make a horizontal list.
   var drawn = 0;
   var commands = [
     'deploy',
-    //'view',
     'destroy',
     'start',
     'restart',
@@ -205,6 +188,7 @@ function start(data, callback) {
     'cloud',
     'browse'
   ];
+
   commands.forEach(function(text, i) {
     var t = ++i + '-' + text;
     bar._[text] = new blessed.Button({
@@ -249,12 +233,13 @@ function start(data, callback) {
   bar._.deploy._.callback = function() {
     if (!app) return msg._.error('Not an app!');
 
-    var focused = screen.focused;
+    var id = app.user + '/' + app.name
+      , focused = screen.focused;
+
     bar._.deploy.focus();
 
     function getPath(callback) {
-      var id = app.user + '/' + app.name
-        , cwd = process.cwd().replace(process.env.HOME, '~');
+      var cwd = process.cwd().replace(process.env.HOME, '~');
 
       if (cwd[cwd.length-1] !== '/') cwd += '/';
 
@@ -266,7 +251,6 @@ function start(data, callback) {
 
       return prompt._.type(text, cwd, function(err, res) {
         if (err) return callback(err);
-        cache[id] = res;
         return callback(null, res);
       });
     }
@@ -322,35 +306,12 @@ function start(data, callback) {
           return msg._.error('Deploy was not successful.');
         }
 
+        cache[id] = dir;
+
         return refreshData(function() {
           loading._.stop();
         });
       });
-
-      // NOTE: Probably not worth rewriting jitsu's entire deploy function.
-      // return getCloud(app, function(err, cloud) {
-      //   focused.focus();
-      //   if (err) return msg._.error(err.message);
-      //   if (!cloud) return;
-      //   return tarball(dir, function(err, filename) {
-      //     return api.snapshots.create(app.name, snapshotName, filename, function(err) {
-      //       return api.snapshots.activate(app.name, snapshotName, function(err) {
-      //         //merge local with remote
-      //         return api.apps.update(app, function(err) {
-      //           return api.apps.start(app.name, cloud, function(err) {
-      //             if (err) {
-      //               loading._.stop();
-      //               return msg._.error(err.message);
-      //             }
-      //             return refreshData(function() {
-      //               loading._.stop();
-      //             });
-      //           });
-      //         });
-      //       });
-      //     });
-      //   });
-      // });
     });
   };
 
@@ -373,10 +334,6 @@ function start(data, callback) {
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
-      // return getCloud(app, function(err, cloud) {
-      //   focused.focus();
-      //   if (err) return msg._.error(err.message);
-      //   if (!cloud) return;
       return api.apps.start(app.name, function(err) {
         if (err) {
           loading._.stop();
@@ -490,7 +447,6 @@ function start(data, callback) {
     var focused = screen.focused;
     bar._.destroy.focus();
     return prompt._.type(text, function(err, res) {
-      //bar._.destroy.focus();
       focused.focus();
       if (err) return msg._.error(err.message);
       if (!res) return;
@@ -519,7 +475,6 @@ function start(data, callback) {
     var focused = screen.focused;
     bar._.setdrones.focus();
     return prompt._.type('Set drones:', app.maxDrones + '', function(err, res) {
-      //bar._.setdrones.focus();
       focused.focus();
       if (err) return msg._.error(err.message);
       if (!res) return;
@@ -793,7 +748,6 @@ function start(data, callback) {
 
   mlist.on('cancel', function() {
     mlist.hide();
-    // if we make screen emit second, wrap this call in a process.nextTick
     screen.restoreFocus();
     screen.render();
   });
@@ -959,12 +913,6 @@ function handleData(data) {
     ctime: new Date(user.ctime).toUTCString(),
     mtime: new Date(user.mtime).toUTCString(),
     permissions: user.permissions || {},
-    //inviteCode: user.inviteCode,
-    //profile: user.profile,
-    //thirdPartyTokens: user.thirdPartyTokens,
-    //'confirm-time': user['confirm-time'],
-    //first_name: user.first_name,
-    //last_name: user.last_name,
     customer: user.billing ? user.billing.customerId : null,
     profile: user.billing ? user.billing.profileId : null,
     subscription: (function() {
@@ -1034,7 +982,7 @@ function handleData(data) {
     var cfg = (app.config ? app.config.cloud : null) || [];
     cfg = cfg[0] || {};
     return {
-      //_id: app._id,
+      id: app._id,
       user: app.user,
       name: app.name,
       subdomain: app.subdomain,
@@ -1052,7 +1000,6 @@ function handleData(data) {
       active: (app.active || {}).id,
       env: app.env,
       databases: app.databases || {},
-      //config: cfg,
       provider: cfg.provider,
       datacenter: cfg.datacenter,
       ram: cfg.ram,
@@ -1158,26 +1105,32 @@ function createPrompt() {
 
   prompt._.type = function(text, value, callback) {
     var okay, cancel;
+
     if (!callback) {
       callback = value;
       value = '';
     }
+
     prompt.show();
     prompt.setContent(' ' + text);
+
     if (value) prompt._.input.value = value;
+
     prompt._.okay.on('press', okay = function() {
       prompt._.input.submit();
     });
+
     prompt._.cancel.on('press', cancel = function() {
       prompt._.input.cancel();
     });
+
     prompt._.input.setInput(function(err, data) {
       prompt.hide();
       prompt._.okay.removeListener('press', okay);
       prompt._.cancel.removeListener('press', cancel);
-      //screen.render();
       return callback(err, data);
     });
+
     screen.render();
   };
 
@@ -1233,8 +1186,10 @@ function createQuestion() {
 
   question._.ask = function(text, callback) {
     var press, okay, cancel;
+
     question.show();
     question.setContent(' ' + text);
+
     screen.on('keypress', press = function(ch, key) {
       if (key.name === 'mouse') return;
       if (key.name !== 'enter'
@@ -1246,25 +1201,27 @@ function createQuestion() {
       }
       done(null, key.name === 'enter' || key.name === 'y');
     });
+
     question._.okay.on('press', okay = function() {
       done(null, true);
     });
+
     question._.cancel.on('press', cancel = function() {
       done(null, false);
     });
+
     screen.saveFocus();
     question.focus();
-    //screen.grabKeys = true;
+
     function done(err, data) {
-      //screen.grabKeys = false;
       question.hide();
       screen.restoreFocus();
       screen.removeListener('keypress', press);
       question._.okay.removeListener('press', okay);
       question._.cancel.removeListener('press', cancel);
-      //screen.render();
       return callback(err, data);
     }
+
     screen.render();
   };
 
@@ -1551,7 +1508,6 @@ function setup(callback) {
     return fs.readFile(opt.userconfig, 'utf8', cb);
   }
 
-  //return fs.readFile(opt.userconfig, 'utf8', function(err, data) {
   return read(function(err, data) {
     try {
       config = JSON.parse(data);
