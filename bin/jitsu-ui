@@ -210,7 +210,7 @@ function start(data, callback) {
   });
 
   screen.on('keypress', function(ch) {
-    var i = '1234567890qwertyuiop'.indexOf(ch)
+    var i = '1234567890-='.indexOf(ch)
       , command;
 
     if (~i) {
@@ -313,6 +313,7 @@ function start(data, callback) {
     if (!app) return msg._.error('Not an app!');
 
     var focused = screen.focused;
+    bar._.start.focus();
 
     var text = 'Are you sure you want to {blue-fg}start{/} {green-fg}'
       + app.name + '{/}? (y/n)';
@@ -352,6 +353,8 @@ function start(data, callback) {
     if (!app) return msg._.error('Not an app!');
 
     var focused = screen.focused;
+    bar._.cloud.focus();
+
     return getCloud(app, function(err, cloud) {
       focused.focus();
 
@@ -390,10 +393,15 @@ function start(data, callback) {
   bar._.stop._.callback = function() {
     if (!app) return msg._.error('Not an app!');
 
+    var focused = screen.focused;
+    bar._.stop.focus();
+
     var text = 'Are you sure you want to {blue-fg}stop{/} {green-fg}'
       + app.name + '{/}? (y/n)';
 
     return question._.ask(text, function(err, res) {
+      focused.focus();
+
       if (err) {
         loading._.stop();
         return msg._.error(err.message);
@@ -425,10 +433,15 @@ function start(data, callback) {
   bar._.restart._.callback = function() {
     if (!app) return msg._.error('Not an app!');
 
+    var focused = screen.focused;
+    bar._.restart.focus();
+
     var text = 'Are you sure you want to restart {blue-fg}restart{/} {green-fg}'
       + app.name + '{/}? (y/n)';
 
     return question._.ask(text, function(err, res) {
+      focused.focus();
+
       if (err) {
         loading._.stop();
         return msg._.error(err.message);
@@ -498,10 +511,13 @@ function start(data, callback) {
 
   bar._.setdrones._.callback = function() {
     if (!app) return msg._.error('Not an app!');
+
     var focused = screen.focused;
     bar._.setdrones.focus();
+
     return prompt._.type('Set drones:', app.maxDrones + '', function(err, res) {
       focused.focus();
+
       if (err) return msg._.error(err.message);
 
       if (!res) return;
@@ -587,6 +603,7 @@ function start(data, callback) {
 
   bar._.snapshots._.callback = function() {
     if (!app) return msg._.error('Not an app!');
+
     return api.snapshots.list(app.name, function(err, snapshots) {
       if (err) return msg._.error(err.message);
 
@@ -624,6 +641,7 @@ function start(data, callback) {
 
   bar._.env._.callback = function() {
     if (!app) return msg._.error('Not an app!');
+
     return api.apps.view(app.name, function(err, app) {
       if (err) return msg._.error(err.message);
 
@@ -674,6 +692,7 @@ function start(data, callback) {
 
   bar._.browse._.callback = function() {
     if (!app) return msg._.error('Not an app!');
+
     try {
       require('opener')('https://' + (app.domain
         || (app.domains && app.domains[0])
