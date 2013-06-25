@@ -198,9 +198,7 @@ function start(data, callback) {
       bg: 'blue',
       height: 1,
       content: t,
-      //shrink: true
       width: t.length + 2,
-      //underline: true,
       align: 'center'
     });
     bar._[text].on('press', function(ch, key) {
@@ -212,18 +210,14 @@ function start(data, callback) {
   });
 
   screen.on('keypress', function(ch) {
-    var below = 'qwertyuiop'
-      , i = below.indexOf(ch)
+    var i = '1234567890qwertyuiop'.indexOf(ch)
       , command;
 
-    if ((ch >= '0' && ch <= '9') || ~i) {
-      if (!~i) {
-        i = ch === '0' ? 9 : ch - 1;
-      } else {
-        i += 9;
-      }
+    if (~i) {
       command = commands[i];
-      if (!command || !bar._[command]) return;
+      if (!command || !bar._[command]) {
+        return;
+      }
       if (bar._[command]._.callback) {
         bar._[command]._.callback();
       }
@@ -317,23 +311,31 @@ function start(data, callback) {
 
   bar._.start._.callback = function() {
     if (!app) return msg._.error('Not an app!');
+
     var focused = screen.focused;
+
     var text = 'Are you sure you want to {blue-fg}start{/} {green-fg}'
       + app.name + '{/}? (y/n)';
-    return question._.ask(text, function(err, result) {
+
+    return question._.ask(text, function(err, res) {
       focused.focus();
+
       if (err) {
         loading._.stop();
         return msg._.error(err.message);
       }
-      if (!result) {
+
+      if (!res) {
         loading._.stop();
         return;
       }
+
       loading._.load('App is being {blue-fg}started{/}. Please wait...');
+
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+
       return api.apps.start(app.name, function(err) {
         if (err) {
           loading._.stop();
@@ -354,12 +356,15 @@ function start(data, callback) {
       focused.focus();
 
       if (err) return msg._.error(err.message);
+
       if (!cloud) return;
 
       loading._.load('App is being {blue-fg}updated{/}. Please wait...');
+
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+
       return api.apps.endpoints(function(err, endpoints) {
         if (err) {
           loading._.stop();
@@ -384,21 +389,27 @@ function start(data, callback) {
 
   bar._.stop._.callback = function() {
     if (!app) return msg._.error('Not an app!');
+
     var text = 'Are you sure you want to {blue-fg}stop{/} {green-fg}'
       + app.name + '{/}? (y/n)';
-    return question._.ask(text, function(err, result) {
+
+    return question._.ask(text, function(err, res) {
       if (err) {
         loading._.stop();
         return msg._.error(err.message);
       }
-      if (!result) {
+
+      if (!res) {
         loading._.stop();
         return;
       }
+
       loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
+
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+
       return api.apps.stop(app.name, function(err) {
         if (err) {
           loading._.stop();
@@ -413,21 +424,27 @@ function start(data, callback) {
 
   bar._.restart._.callback = function() {
     if (!app) return msg._.error('Not an app!');
+
     var text = 'Are you sure you want to restart {blue-fg}restart{/} {green-fg}'
       + app.name + '{/}? (y/n)';
-    return question._.ask(text, function(err, result) {
+
+    return question._.ask(text, function(err, res) {
       if (err) {
         loading._.stop();
         return msg._.error(err.message);
       }
-      if (!result) {
+
+      if (!res) {
         loading._.stop();
         return;
       }
+
       loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
+
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+
       return api.apps.restart(app.name, function(err) {
         if (err) {
           loading._.stop();
@@ -442,22 +459,31 @@ function start(data, callback) {
 
   bar._.destroy._.callback = function() {
     if (!app) return msg._.error('Not an app!');
-    var text = 'Are you sure you want to destroy this?'
-      + ' If so, type the app name.';
+
     var focused = screen.focused;
     bar._.destroy.focus();
+
+    var text = 'Are you sure you want to destroy this?'
+      + ' If so, type the app name.';
+
     return prompt._.type(text, function(err, res) {
       focused.focus();
+
       if (err) return msg._.error(err.message);
+
       if (!res) return;
+
       if (res !== app.name) {
         msg._.error('Bad app name.');
         return;
       }
+
       loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
+
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+
       return api.apps.destroy(app.name, function(err) {
         if (err) {
           loading._.stop();
@@ -477,14 +503,19 @@ function start(data, callback) {
     return prompt._.type('Set drones:', app.maxDrones + '', function(err, res) {
       focused.focus();
       if (err) return msg._.error(err.message);
+
       if (!res) return;
+
       if (!/^\d+$/.test(res)) {
         return msg._.error('Not a number.');
       }
+
       loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
+
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
+
       return api.apps.setDrones(app.name, +res, function() {
         if (err) {
           loading._.stop();
@@ -878,7 +909,7 @@ function start(data, callback) {
       if (callback) callback();
     }
 
-    setTimeout(function() {
+    return setTimeout(function() {
       screen.on('keypress', function fn(ch, key) {
         if (key.name === 'mouse') return;
         screen.removeListener('keypress', fn);
@@ -916,7 +947,9 @@ function handleData(data) {
     customer: user.billing ? user.billing.customerId : null,
     profile: user.billing ? user.billing.profileId : null,
     subscription: (function() {
-      if (!user.billing || !user.billing.subscriptions) return;
+      if (!user.billing || !user.billing.subscriptions) {
+        return;
+      }
 
       var subs = user.billing.subscriptions
         , keys = Object.keys(subs)
@@ -1284,10 +1317,10 @@ function auth(callback) {
   function typePassword(callback) {
     if (config.password) return callback();
     prompt._.input.secret = true;
-    return prompt._.type('Type your password:', function(err, result) {
+    return prompt._.type('Type your password:', function(err, res) {
       prompt._.input.secret = false;
       if (err) return callback(err);
-      return callback(err, result);
+      return callback(err, res);
     });
   }
 
@@ -1360,10 +1393,10 @@ function auth(callback) {
 
 function signup(callback) {
   var question = createQuestion();
-  return question._.ask('Do you want to signup? (y/n)', function(err, result) {
+  return question._.ask('Do you want to signup? (y/n)', function(err, res) {
     question.detach();
     if (err) return callback(err);
-    if (!result) return callback();
+    if (!res) return callback();
     var prompt = createPrompt();
     return prompt._.type('Type your username:', function(err, username) {
       if (err) return callback(err);
