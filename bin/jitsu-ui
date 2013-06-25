@@ -11,6 +11,7 @@
 var fs = require('fs')
   , blessed = require('blessed')
   , napi = require('nodejitsu-api')
+  , cache = {}
   , api
   , config
   , opt;
@@ -24,6 +25,8 @@ function jitsu(args, cwd, callback) {
   var spawn = require('child_process').spawn;
 
   var screen = createScreen();
+
+  tempSave();
 
   screen.program.normalBuffer();
   screen.program.showCursor();
@@ -42,6 +45,8 @@ function jitsu(args, cwd, callback) {
   }
 
   var resume = function() {
+    tempRemove();
+
     try {
       process.stdin.resume();
     } catch (e) {
@@ -57,6 +62,9 @@ function jitsu(args, cwd, callback) {
     screen.alloc();
     screen.render();
   };
+
+  args.unshift(opt.userconfig + '.tmp');
+  args.unshift('--userconfig');
 
   var ps = spawn('jitsu', args, {
     stdio: 'inherit',
@@ -76,9 +84,7 @@ function jitsu(args, cwd, callback) {
 }
 
 function start(data, callback) {
-  var user = data.user
-    , apps = data.apps
-    , app;
+  var app;
 
   handleData(data);
 
@@ -117,9 +123,13 @@ function start(data, callback) {
     bottom: 0,
     width: data.longest + 2,
     selectedBg: 'blue',
-    items: ['user'].concat(apps.map(function(app) {
+    items: ['user'].concat(data.apps.map(function(app) {
       return app.name;
     }))
+  });
+
+  side.on('select', function() {
+    main.focus();
   });
 
   var sep = new blessed.Line({
@@ -144,8 +154,27 @@ function start(data, callback) {
     right: 0
   });
 
-  // TODO: Allow chidlren elements to be scrollable in ScrollableBox *along* with content.
-  // Maybe auto-position elements in ScrollableBox, or AutoScrollableBox.
+  main.on('focus', function() {
+    sep._fg = sep.fg;
+    sep.border.fg = 4;
+    screen.render();
+  });
+
+  main.on('blur', function() {
+    if (sep._fg) sep.border.fg = sep._fg;
+    screen.render();
+  });
+
+  //main.on('keypress', function(ch, key) {
+  //  if (key.name === 'escape') {
+  //    side.focus();
+  //    screen.render();
+  //  }
+  //});
+
+  // TODO: Allow chidlren elements to be scrollable in ScrollableBox *along*
+  // with content. Maybe auto-position elements in ScrollableBox, or
+  // AutoScrollableBox.
 
   var bar = new blessed.Box({
     parent: screen,
@@ -199,9 +228,17 @@ function start(data, callback) {
   });
 
   screen.on('keypress', function(ch) {
-    if (ch >= '0' && ch <= '9') {
-      var i = ch === '0' ? 9 : ch - 1
-        , command = commands[i];
+    var below = 'qwertyuiop'
+      , i = below.indexOf(ch)
+      , command;
+
+    if ((ch >= '0' && ch <= '9') || ~i) {
+      if (!~i) {
+        i = ch === '0' ? 9 : ch - 1;
+      } else {
+        i += 9;
+      }
+      command = commands[i];
       if (!command || !bar._[command]) return;
       if (bar._[command]._.callback) {
         bar._[command]._.callback();
@@ -209,41 +246,72 @@ function start(data, callback) {
     }
   });
 
-  bar._.deploy._.callback = function(all) {
+  bar._.deploy._.callback = function() {
     if (!app) return msg._.error('Not an app!');
-    var cwd = process.cwd().replace(process.env.HOME, '~');
-    if (cwd[cwd.length-1] !== '/') cwd += '/';
+
     var focused = screen.focused;
     bar._.deploy.focus();
-    // TODO: Cache the received value and save it to disk.
-    return prompt._.type('Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})', cwd, function(err, response) {
-      focused.focus();
-      //bar._.deploy.focus();
-      if (err) return msg._.error(err.message);
-      if (!response) return;
-      loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
+
+    function getPath(callback) {
+      var id = app.user + '/' + app.name
+        , cwd = process.cwd().replace(process.env.HOME, '~');
+
+      if (cwd[cwd.length-1] !== '/') cwd += '/';
+
+      if (cache[id]) {
+        return callback(null, cache[id]);
       }
-      response = response.replace(/^~/, process.env.HOME);
+
+      var text = 'Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})';
+
+      return prompt._.type(text, cwd, function(err, res) {
+        if (err) return callback(err);
+        cache[id] = res;
+        return callback(null, res);
+      });
+    }
+
+    return getPath(function(err, dir) {
+      if (err) {
+        focused.focus();
+        return msg._.error(err.message);
+      }
+
+      if (!dir) {
+        focused.focus();
+        return;
+      }
+
+      dir = dir.replace(/^~/, process.env.HOME);
 
       function deploy(callback) {
         var args = ['deploy'];
-        if (!all) {
-          return jitsu(args, response, callback);
-        } else {
-          return getCloud(app, function(err, cloud) {
-            args.push(cloud.datacenter);
-            args.push(cloud.provider);
-            args.push(cloud.drones);
-            args.push(cloud.ram);
-            return jitsu(args, response, callback);
-          });
-        }
+        return getCloud(app, function(err, cloud) {
+          focused.focus();
+
+          if (err) return msg._.error(err.message);
+          if (!cloud) return;
+
+          loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
+
+          if (opt.debug) {
+            return setTimeout(loading._.stop, 5000);
+          }
+
+          args.push('--provider');
+          args.push(cloud.provider);
+          args.push('--datacenter');
+          args.push(cloud.datacenter);
+          args.push('--drones');
+          args.push(cloud.drones);
+          args.push('--ram');
+          args.push(cloud.ram);
+
+          return jitsu(args, dir, callback);
+        });
       }
 
-      // return getCloud(app, function(err, cloud) {
-      return jitsu(['deploy'], response, function(err, success) {
+      return deploy(function(err, success) {
         if (err) {
           loading._.stop();
           return msg._.error(err.message);
@@ -258,15 +326,58 @@ function start(data, callback) {
           loading._.stop();
         });
       });
-/*
-      // return getCloud(app, function(err, cloud) {
+
       // NOTE: Probably not worth rewriting jitsu's entire deploy function.
-      //return tarball(response, function(err, filename) {
-      return api.snapshots.create(app.name, snapshotName, filename, function(err) {
-      //return api.snapshots.activate(app.name, snapshotName, function(err) {
-      //merge local with remote
-      //return api.apps.update(app, function(err) {
-      //return api.apps.start(app.name, function(err) {
+      // return getCloud(app, function(err, cloud) {
+      //   focused.focus();
+      //   if (err) return msg._.error(err.message);
+      //   if (!cloud) return;
+      //   return tarball(dir, function(err, filename) {
+      //     return api.snapshots.create(app.name, snapshotName, filename, function(err) {
+      //       return api.snapshots.activate(app.name, snapshotName, function(err) {
+      //         //merge local with remote
+      //         return api.apps.update(app, function(err) {
+      //           return api.apps.start(app.name, cloud, function(err) {
+      //             if (err) {
+      //               loading._.stop();
+      //               return msg._.error(err.message);
+      //             }
+      //             return refreshData(function() {
+      //               loading._.stop();
+      //             });
+      //           });
+      //         });
+      //       });
+      //     });
+      //   });
+      // });
+    });
+  };
+
+  bar._.start._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+    var focused = screen.focused;
+    var text = 'Are you sure you want to {blue-fg}start{/} {green-fg}'
+      + app.name + '{/}? (y/n)';
+    return question._.ask(text, function(err, result) {
+      focused.focus();
+      if (err) {
+        loading._.stop();
+        return msg._.error(err.message);
+      }
+      if (!result) {
+        loading._.stop();
+        return;
+      }
+      loading._.load('App is being {blue-fg}started{/}. Please wait...');
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      // return getCloud(app, function(err, cloud) {
+      //   focused.focus();
+      //   if (err) return msg._.error(err.message);
+      //   if (!cloud) return;
+      return api.apps.start(app.name, function(err) {
         if (err) {
           loading._.stop();
           return msg._.error(err.message);
@@ -275,32 +386,19 @@ function start(data, callback) {
           loading._.stop();
         });
       });
-*/
-    });
-  };
-
-  bar._.start._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-    loading._.load('App is being {blue-fg}started{/}. Please wait...');
-    if (opt.debug) {
-      return setTimeout(loading._.stop, 5000);
-    }
-    // return getCloud(app, function(err, cloud) {
-    return api.apps.start(app.name, function(err) {
-      if (err) {
-        loading._.stop();
-        return msg._.error(err.message);
-      }
-      return refreshData(function() {
-        loading._.stop();
-      });
     });
   };
 
   bar._.cloud._.callback = function() {
     if (!app) return msg._.error('Not an app!');
 
+    var focused = screen.focused;
     return getCloud(app, function(err, cloud) {
+      focused.focus();
+
+      if (err) return msg._.error(err.message);
+      if (!cloud) return;
+
       loading._.load('App is being {blue-fg}updated{/}. Please wait...');
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
@@ -318,7 +416,9 @@ function start(data, callback) {
           return refreshData(function() {
             var tld = endpoints[cloud.provider][cloud.datacenter];
             loading._.stop();
-            msg._.log('Running on http://' + app.subdomain + tld.replace('api', ''));
+            msg._.log('Running on http://'
+              + app.subdomain
+              + tld.replace('api', ''));
           });
         });
       });
@@ -327,34 +427,58 @@ function start(data, callback) {
 
   bar._.stop._.callback = function() {
     if (!app) return msg._.error('Not an app!');
-    loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
-    if (opt.debug) {
-      return setTimeout(loading._.stop, 5000);
-    }
-    return api.apps.stop(app.name, function(err) {
+    var text = 'Are you sure you want to {blue-fg}stop{/} {green-fg}'
+      + app.name + '{/}? (y/n)';
+    return question._.ask(text, function(err, result) {
       if (err) {
         loading._.stop();
         return msg._.error(err.message);
       }
-      return refreshData(function() {
+      if (!result) {
         loading._.stop();
+        return;
+      }
+      loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      return api.apps.stop(app.name, function(err) {
+        if (err) {
+          loading._.stop();
+          return msg._.error(err.message);
+        }
+        return refreshData(function() {
+          loading._.stop();
+        });
       });
     });
   };
 
   bar._.restart._.callback = function() {
     if (!app) return msg._.error('Not an app!');
-    loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
-    if (opt.debug) {
-      return setTimeout(loading._.stop, 5000);
-    }
-    return api.apps.restart(app.name, function(err) {
+    var text = 'Are you sure you want to restart {blue-fg}restart{/} {green-fg}'
+      + app.name + '{/}? (y/n)';
+    return question._.ask(text, function(err, result) {
       if (err) {
         loading._.stop();
         return msg._.error(err.message);
       }
-      return refreshData(function() {
+      if (!result) {
         loading._.stop();
+        return;
+      }
+      loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
+      if (opt.debug) {
+        return setTimeout(loading._.stop, 5000);
+      }
+      return api.apps.restart(app.name, function(err) {
+        if (err) {
+          loading._.stop();
+          return msg._.error(err.message);
+        }
+        return refreshData(function() {
+          loading._.stop();
+        });
       });
     });
   };
@@ -362,16 +486,16 @@ function start(data, callback) {
   bar._.destroy._.callback = function() {
     if (!app) return msg._.error('Not an app!');
     var text = 'Are you sure you want to destroy this?'
-      + ' If so, type your username.';
+      + ' If so, type the app name.';
     var focused = screen.focused;
     bar._.destroy.focus();
-    return prompt._.type(text, function(err, response) {
+    return prompt._.type(text, function(err, res) {
       //bar._.destroy.focus();
       focused.focus();
       if (err) return msg._.error(err.message);
-      if (!response) return;
-      if (response !== user.username) {
-        msg._.error('Bad username.');
+      if (!res) return;
+      if (res !== app.name) {
+        msg._.error('Bad app name.');
         return;
       }
       loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
@@ -394,19 +518,19 @@ function start(data, callback) {
     if (!app) return msg._.error('Not an app!');
     var focused = screen.focused;
     bar._.setdrones.focus();
-    return prompt._.type('Set drones:', app.maxDrones + '', function(err, response) {
+    return prompt._.type('Set drones:', app.maxDrones + '', function(err, res) {
       //bar._.setdrones.focus();
       focused.focus();
       if (err) return msg._.error(err.message);
-      if (!response) return;
-      if (!/^\d+$/.test(response)) {
+      if (!res) return;
+      if (!/^\d+$/.test(res)) {
         return msg._.error('Not a number.');
       }
       loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
       if (opt.debug) {
         return setTimeout(loading._.stop, 5000);
       }
-      return api.apps.setDrones(app.name, +response, function() {
+      return api.apps.setDrones(app.name, +res, function() {
         if (err) {
           loading._.stop();
           return msg._.error(err.message);
@@ -450,9 +574,15 @@ function start(data, callback) {
           return log.text;
         });
 
-        if (!data.length) data.push('--- No logs. ---');
+        if (!data.length) {
+          data.push('--- No logs. ---');
+        }
 
-        mlist._.show(data);
+        if (screen.focused !== mlist) {
+          mlist._.show(data);
+        } else {
+          mlist._.setItems(data);
+        }
 
         screen.render();
 
@@ -472,6 +602,8 @@ function start(data, callback) {
   bar._.snapshots._.callback = function() {
     if (!app) return msg._.error('Not an app!');
     return api.snapshots.list(app.name, function(err, snapshots) {
+      if (err) return msg._.error(err.message);
+
       var data = snapshots.map(function(snapshot) {
         return snapshot.id
           + ' - '
@@ -490,7 +622,9 @@ function start(data, callback) {
           return;
         }
         var i = data.indexOf(el.content);
-        loading._.load('Snapshot is being {blue-fg}activated{/}. Please wait...');
+        loading._.load(
+          'Snapshot is being {blue-fg}activated{/}.'
+          + ' Please wait...');
         if (opt.debug) {
           return setTimeout(loading._.stop, 5000);
         }
@@ -505,13 +639,14 @@ function start(data, callback) {
   bar._.env._.callback = function() {
     if (!app) return msg._.error('Not an app!');
     return api.apps.view(app.name, function(err, app) {
+      if (err) return msg._.error(err.message);
+
       var env = app.env || {}
         , data = [];
 
       Object.keys(env).forEach(function(key) {
         data.push(key + '=' + env[key]);
       });
-
 
       mlist._.show(data);
 
@@ -522,18 +657,21 @@ function start(data, callback) {
           mlist.removeListener('action', fn);
           return;
         }
+
         var i = data.indexOf(el.content)
           , parts = data[i].split('=')
           , key = parts[0]
           , val = parts[1];
 
-        return prompt._.type('Value of ' + key + ':', val, function(err, response) {
+        return prompt._.type('Value of ' + key + ':', val, function(err, res) {
           mlist.focus();
           if (err) return msg._.error(err.message);
-          if (!response) return;
+          if (!res) return;
           var body = {};
-          body[key] = response === '' ? null : response;
-          loading._.load('Environment variable is being {blue-fg}set{/}. Please wait...');
+          body[key] = res === '' ? null : res;
+          loading._.load(
+            'Environment variable is being {blue-fg}set{/}.'
+            + ' Please wait...');
           if (opt.debug) {
             return setTimeout(loading._.stop, 5000);
           }
@@ -551,10 +689,10 @@ function start(data, callback) {
   bar._.browse._.callback = function() {
     if (!app) return msg._.error('Not an app!');
     try {
-      require('opener')('https://'
-        + (app.domain
+      require('opener')('https://' + (app.domain
         || (app.domains && app.domains[0])
-        || (app.subdomain + '.jit.su')));
+        || (app.subdomain + '.jit.su'))
+      );
     } catch (e) {
       jitsu(['apps', 'browse', app.name], function() {
         ;
@@ -564,7 +702,7 @@ function start(data, callback) {
 
   screen.on('element focus', function(old, cur) {
     if (old._bg) old.bg = old._bg;
-    if (cur instanceof blessed.Button) {
+    if (cur.type === 'button') {
       cur._bg = cur.bg;
       cur.bg = 1;
     }
@@ -581,8 +719,20 @@ function start(data, callback) {
       screen.render();
       return;
     }
-    if (key.name === 'escape') {
+
+    if (key.name === 'c' && key.ctrl) {
       return process.exit(0);
+    }
+
+    if (key.name === 'escape') {
+      if (screen.focused === side) {
+        return process.exit(0);
+      }
+      if (screen.focused === main || screen.focused.parent === bar) {
+        side.focus();
+        screen.render();
+        return;
+      }
     }
   });
 
@@ -590,14 +740,30 @@ function start(data, callback) {
     if (side.selected < 1) {
       app = null;
       if (side.selected === 0) {
-        main.childBase = 0; // TODO: Maybe automate this.
+        main.resetScroll();
         main.setContent(formatMain({ fix: true }, data._user, main.width));
       }
     } else {
       app = data._apps[side.selected - 1];
-      main.childBase = 0; // TODO: Maybe automate this.
+      main.resetScroll();
       main.setContent(formatMain({ fix: true }, app, main.width));
     }
+    screen.render();
+  });
+
+  side.on('focus', function() {
+    var el = side.items[side.selected];
+    if (el._bg) {
+      el.bg = el._bg;
+      delete el._bg;
+    }
+    screen.render();
+  });
+
+  side.on('blur', function() {
+    var el = side.items[side.selected];
+    el._bg = el.bg;
+    el.bg = 0;
     screen.render();
   });
 
@@ -627,11 +793,13 @@ function start(data, callback) {
 
   mlist.on('cancel', function() {
     mlist.hide();
+    // if we make screen emit second, wrap this call in a process.nextTick
     screen.restoreFocus();
     screen.render();
   });
 
   var prompt = createPrompt();
+  var question = createQuestion();
 
   var loading = new blessed.Box({
     parent: screen,
@@ -995,7 +1163,7 @@ function createPrompt() {
       value = '';
     }
     prompt.show();
-    prompt.setContent(text);
+    prompt.setContent(' ' + text);
     if (value) prompt._.input.value = value;
     prompt._.okay.on('press', okay = function() {
       prompt._.input.submit();
@@ -1066,7 +1234,7 @@ function createQuestion() {
   question._.ask = function(text, callback) {
     var press, okay, cancel;
     question.show();
-    question.setContent(text);
+    question.setContent(' ' + text);
     screen.on('keypress', press = function(ch, key) {
       if (key.name === 'mouse') return;
       if (key.name !== 'enter'
@@ -1084,8 +1252,13 @@ function createQuestion() {
     question._.cancel.on('press', cancel = function() {
       done(null, false);
     });
+    screen.saveFocus();
+    question.focus();
+    //screen.grabKeys = true;
     function done(err, data) {
+      //screen.grabKeys = false;
       question.hide();
+      screen.restoreFocus();
       screen.removeListener('keypress', press);
       question._.okay.removeListener('press', okay);
       question._.cancel.removeListener('press', cancel);
@@ -1104,10 +1277,23 @@ function getCloud(app, callback) {
 
   cloud = cloud[0] || {};
 
-  return prompt._.type('Datacenter?', cloud.datacenter || 'us-east-1', function(err, datacenter) {
-    return prompt._.type('Provider?', cloud.provider || 'joyent', function(err, provider) {
-      return prompt._.type('Drones?', cloud.drones || '1', function(err, drones) {
-        return prompt._.type('RAM?', cloud.ram || '256', function(err, ram) {
+  cloud.datacenter = cloud.datacenter || 'us-east-1';
+  cloud.provider = cloud.provider || 'joyent';
+  cloud.drones = cloud.drones || '1';
+  cloud.ram = cloud.ram || '256';
+
+  return prompt._.type('Datacenter?', cloud.datacenter, function(err, datacenter) {
+    if (err) return callback(err);
+    if (datacenter == null) return callback();
+    return prompt._.type('Provider?', cloud.provider, function(err, provider) {
+      if (err) return callback(err);
+      if (provider == null) return callback();
+      return prompt._.type('Drones?', cloud.drones, function(err, drones) {
+        if (err) return callback(err);
+        if (drones == null) return callback();
+        return prompt._.type('RAM?', cloud.ram, function(err, ram) {
+          if (err) return callback(err);
+          if (ram == null) return callback();
           return callback(null, {
             datacenter: datacenter || 'us-east-1',
             provider: provider || 'joyent',
@@ -1166,7 +1352,9 @@ function auth(callback) {
               if (!success) return callback(new Error('Bad login.'));
               return api.users.view(config.username, function(err, user_) {
                 if (err) return callback(err);
-                config.apiToken = (user_.apiTokens || {})[config.apiTokenName || 'jitsu'];
+                if (user_.apiTokens) {
+                  config.apiToken = user_.apiTokens[config.apiToken || 'jitsu'];
+                }
                 if (config.apiToken) {
                   config.apiTokenName = config.apiTokenName || 'jitsu';
                   delete config.password;
@@ -1194,7 +1382,9 @@ function auth(callback) {
           if (err) return callback(err);
           return api.users.view(username, function(err, user_) {
             if (err) return callback(err);
-            config.apiToken = (user_.apiTokens || {})[config.apiTokenName || 'jitsu'];
+            if (user_.apiTokens) {
+              config.apiToken = user_.apiTokens[config.apiToken || 'jitsu'];
+            }
             if (config.apiToken) {
               config.apiTokenName = config.apiTokenName || 'jitsu';
               delete config.password;
@@ -1401,6 +1591,22 @@ function save(callback) {
     return;
   }
   return fs.writeFile(opt.userconfig, data, callback);
+}
+
+function tempSave(callback) {
+  try {
+    fs.writeFileSync(opt.userconfig + '.tmp', JSON.stringify(config, null, 2));
+  } catch (e) {
+    ;
+  }
+}
+
+function tempRemove(callback) {
+  try {
+    fs.unlinkSync(opt.userconfig + '.tmp', data);
+  } catch (e) {
+    ;
+  }
 }
 
 function main(argv, callback) {
