@@ -187,7 +187,6 @@ function start(data, callback) {
     'start',
     'restart',
     'stop',
-    'setdrones',
     'logs',
     'snapshots',
     'env',
@@ -504,41 +503,6 @@ function start(data, callback) {
       }
 
       return api.apps.destroy(app.name, function(err) {
-        if (err) {
-          loading._.stop();
-          return msg._.error(err.message);
-        }
-        return refreshData(function() {
-          loading._.stop();
-        });
-      });
-    });
-  };
-
-  bar._.setdrones._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var focused = screen.focused;
-    bar._.setdrones.focus();
-
-    return prompt._.type('Set drones:', app.maxDrones + '', function(err, res) {
-      focused.focus();
-
-      if (err) return msg._.error(err.message);
-
-      if (!res) return;
-
-      if (!/^\d+$/.test(res)) {
-        return msg._.error('Not a number.');
-      }
-
-      loading._.load('App {blue-fg}drones{/} are being set. Please wait...');
-
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
-
-      return api.apps.setDrones(app.name, +res, function() {
         if (err) {
           loading._.stop();
           return msg._.error(err.message);
