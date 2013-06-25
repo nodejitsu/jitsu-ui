@@ -145,6 +145,12 @@ function start(data, callback) {
     mouse: true,
     keys: true,
     vi: true,
+    scrollbar: {
+      //bg: 'blue',
+      fg: 'blue',
+      //ch: '|'
+      ch: '│'
+    },
     tags: true,
     left: data.longest + 4,
     top: 0,
@@ -624,16 +630,22 @@ function start(data, callback) {
           mlist.removeListener('action', fn);
           return;
         }
+
         var i = data.indexOf(el.content);
+
         loading._.load(
           'Snapshot is being {blue-fg}activated{/}.'
           + ' Please wait...');
+
         if (opt.debug) {
           return setTimeout(loading._.stop, 5000);
         }
+
         return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
-          if (err) msg._.error(err.message);
-          loading._.stop();
+          if (err) return msg._.error(err.message);
+          return refreshData(function() {
+            loading._.stop();
+          });
         });
       });
     });
@@ -646,7 +658,7 @@ function start(data, callback) {
       if (err) return msg._.error(err.message);
 
       var env = app.env || {}
-        , data = [];
+        , data = ['-- New --'];
 
       Object.keys(env).forEach(function(key) {
         data.push(key + '=' + env[key]);
@@ -662,28 +674,60 @@ function start(data, callback) {
           return;
         }
 
-        var i = data.indexOf(el.content)
-          , parts = data[i].split('=')
-          , key = parts[0]
-          , val = parts[1];
+        function getVal(callback) {
+          if (index === 0) {
+            return prompt._.type('Name:', function(err, key) {
+              if (err) return callback(err);
+              return prompt._.type('Value of ' + key + ':', function(err, res) {
+                if (err) return callback(err);
+                return callback(null, key, res);
+              });
+            });
+          }
 
-        return prompt._.type('Value of ' + key + ':', val, function(err, res) {
+          var parts = data[index].split('=')
+            , key = parts[0]
+            , val = parts[1];
+
+          return prompt._.type('Value of ' + key + ':', val, function(err, res) {
+            if (err) return callback(err);
+            return callback(null, key, res);
+          });
+        }
+
+        return getVal(function(err, key, val) {
           mlist.focus();
+
           if (err) return msg._.error(err.message);
-          if (!res) return;
-          var body = {};
-          body[key] = res === '' ? null : res;
+
+          if (key == null || val == null) return;
+
+          var body = { env: app.env || {} };
+
+          if (val === '') {
+            delete body.env[key];
+          } else {
+            body.env[key] = val;
+          }
+
           loading._.load(
             'Environment variable is being {blue-fg}set{/}.'
             + ' Please wait...');
+
           if (opt.debug) {
             return setTimeout(loading._.stop, 5000);
           }
+
           return api.apps.update(app.name, body, function(err) {
             if (err) {
               loading._.stop();
               return msg._.error(err.message);
             }
+            return refreshData(function() {
+              mlist.removeListener('action', fn);
+              loading._.stop();
+              bar._.env._.callback();
+            });
           });
         });
       });
@@ -758,6 +802,10 @@ function start(data, callback) {
 
   side.on('focus', function() {
     var el = side.items[side.selected];
+    if (side._selectedBg) {
+      side.selectedBg = side._selectedBg;
+      delete side._selectedBg;
+    }
     if (el._bg) {
       el.bg = el._bg;
       delete el._bg;
@@ -767,6 +815,8 @@ function start(data, callback) {
 
   side.on('blur', function() {
     var el = side.items[side.selected];
+    side._selectedBg = side.selectedBg;
+    side.selectedBg = 0;
     el._bg = el.bg;
     el.bg = 0;
     screen.render();
@@ -789,6 +839,7 @@ function start(data, callback) {
   });
 
   mlist._.show = function(data, focused) {
+    screen.restoreFocus();
     screen.saveFocus();
     mlist.show();
     mlist.setItems(data);
@@ -1335,9 +1386,11 @@ function auth(callback) {
 
   function typePassword(callback) {
     if (config.password) return callback();
-    prompt._.input.secret = true;
+    //prompt._.input.secret = true;
+    prompt._.input.censor = true;
     return prompt._.type('Type your password:', function(err, res) {
-      prompt._.input.secret = false;
+      //prompt._.input.secret = false;
+      prompt._.input.censor = false;
       if (err) return callback(err);
       return callback(err, res);
     });
@@ -1421,9 +1474,11 @@ function signup(callback) {
       if (err) return callback(err);
       return prompt._.type('Type your email:', function(err, email) {
         if (err) return callback(err);
-        prompt._.input.secret = true;
+        //prompt._.input.secret = true;
+        prompt._.input.censor = true;
         return prompt._.type('Type your password:', function(err, password) {
-          prompt._.input.secret = false;
+          //prompt._.input.secret = false;
+          prompt._.input.censor = false;
           if (err) return callback(err);
           return callback(null, {
             username: username,
