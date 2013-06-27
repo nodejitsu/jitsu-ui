@@ -175,9 +175,9 @@ function start(data, callback) {
     right: 0,
     bottom: 0,
     height: 1,
-    bg: 'lightblack',
     align: 'right',
-    content: data.user.username
+    content: data.user.username,
+    fg: 'blue'
   });
 
   var drawn = 0;
@@ -195,23 +195,27 @@ function start(data, callback) {
   ];
 
   commands.forEach(function(text, i) {
-    var t = ++i + '-' + text;
+    var t = '{light-black-fg}' + (++i) + '{/light-black-fg}' + ':' + text
+      , tlen = (i + ':' + text).length;
+
     bar._[text] = new blessed.Button({
       parent: bar,
       top: 0,
       left: drawn + 1,
-      bg: 'blue',
       height: 1,
       content: t,
-      width: t.length + 2,
-      align: 'center'
+      width: tlen + 2,
+      align: 'center',
+      tags: true
     });
+
     bar._[text].on('press', function(ch, key) {
       if (bar._[text]._.callback) {
         bar._[text]._.callback();
       }
     });
-    drawn += t.length + 3;
+
+    drawn += tlen + 3;
   });
 
   screen.on('keypress', function(ch) {
@@ -517,43 +521,47 @@ function start(data, callback) {
   bar._.logs._.callback = function() {
     if (!app) return msg._.error('Not an app!');
 
-    var time;
+    var time
+      , done
+      , data;
 
     (function poll() {
       return api.logs.byApp(app.name, 20, function(err, results) {
+        if (done) return;
+
         results = results || {};
         results.data = results.data || [];
 
-        var data = [];
+        data = [];
 
         function sort(first, second) {
-          return new Date(first.timestamp) - new Date(second.timestamp);
+          //return new Date(first.timestamp) - new Date(second.timestamp);
+          return new Date(second.timestamp) - new Date(first.timestamp);
         }
 
         results.data.sort(sort).forEach(function(log) {
           if (log.json && log.json.message != null) {
-            log.json.message.split('\n').forEach(function (line) {
-              data.push({
-                date: new Date(log.timestamp),
-                message: line,
-                text: new Date(log.timestamp).toUTCString() + ' - ' + line
-              });
+            data.push({
+              date: new Date(log.timestamp),
+              message: log.json.message,
+              dmessage: new Date(log.timestamp).toUTCString() + '\n' + log.json.message,
+              text: log.json.message.split('\n')[0],
             });
           }
         });
 
-        data = data.map(function(log) {
+        var items = data.map(function(log) {
           return log.text;
         });
 
-        if (!data.length) {
-          data.push('--- No logs. ---');
+        if (!items.length) {
+          items.push('--- No logs. ---');
         }
 
         if (screen.focused !== mlist) {
-          mlist._.show(data);
+          mlist._.show(items);
         } else {
-          mlist._.setItems(data);
+          mlist.setItems(items);
         }
 
         screen.render();
@@ -564,9 +572,65 @@ function start(data, callback) {
 
     mlist.on('action', function fn(el, index) {
       if (!el) {
+        done = true;
         if (time) clearTimeout(time);
         mlist.removeListener('action', fn);
         return;
+      }
+      if (!data[index]) return;
+      info._.show(data[index].dmessage, function() {
+      });
+    });
+  };
+
+  bar._.logs._.callback = function() {
+    if (!app) return msg._.error('Not an app!');
+
+    var time
+      , done;
+
+    screen.saveFocus();
+    main.focus();
+
+    (function poll() {
+      return api.logs.byApp(app.name, 20, function(err, results) {
+        if (done) return;
+
+        var out = '';
+
+        results = results || {};
+        results.data = results.data || [];
+
+        function sort(first, second) {
+          return new Date(second.timestamp) - new Date(first.timestamp);
+        }
+
+        results.data.sort(sort).forEach(function(log) {
+          if (log.json && log.json.message != null) {
+            out += new Date(log.timestamp).toUTCString() + '\n';
+            out += log.json.message;
+          }
+        });
+
+        if (!results.data.length) {
+          out = '--- No logs. ---';
+        }
+
+        main.setContent(out);
+
+        screen.render();
+
+        time = setTimeout(poll, 10 * 1000);
+      });
+    })();
+
+    main.on('keypress', function fn(ch, key) {
+      if (key.name === 'escape' || key.name === 'q') {
+        done = true;
+        if (time) clearTimeout(time);
+        side.emit('scroll');
+        main.removeListener('keypress', fn);
+        screen.restoreFocus();
       }
     });
   };
@@ -717,7 +781,7 @@ function start(data, callback) {
     if (old._bg) old.bg = old._bg;
     if (cur.type === 'button') {
       cur._bg = cur.bg;
-      cur.bg = 1;
+      cur.bg = 4;
     }
     screen.render();
   });
@@ -924,14 +988,10 @@ function start(data, callback) {
     }
   });
 
-  info._.showWelcome = function(callback) {
+  info._.show = function(text, callback) {
     info.show();
 
-    info.setContent('{center}{green-fg}Welcome to jitsu-ui.{/}\n'
-      + 'Press {blue-fg}Tab{/} and {blue-fg}Shift+Tab{/} to'
-      + ' focus between elements, buttons, and the scroll area. Use vi keys'
-      + ' and arrow keys to navigate within any element.{/center}\n'
-      + '{right}{red-fg}- Nodejitsu{/}{/right}');
+    info.setContent(text);
 
     screen.render();
 
@@ -955,6 +1015,15 @@ function start(data, callback) {
         end();
       });
     }, 10);
+  };
+
+  info._.showWelcome = function(callback) {
+    var text = '{center}{green-fg}Welcome to jitsu-ui.{/}\n'
+      + 'Press {blue-fg}Tab{/} and {blue-fg}Shift+Tab{/} to'
+      + ' focus between elements, buttons, and the scroll area. Use vi keys'
+      + ' and arrow keys to navigate within any element.{/center}\n'
+      + '{right}{red-fg}- Nodejitsu{/}{/right}';
+    return info._.show(text, callback);
   };
 
   return info._.showWelcome();
