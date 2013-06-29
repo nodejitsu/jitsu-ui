@@ -1267,6 +1267,8 @@ function createPrompt() {
 
     if (value) prompt._.input.value = value;
 
+    screen.saveFocus();
+
     prompt._.okay.on('press', okay = function() {
       prompt._.input.submit();
     });
@@ -1277,6 +1279,7 @@ function createPrompt() {
 
     prompt._.input.setInput(function(err, data) {
       prompt.hide();
+      screen.restoreFocus();
       prompt._.okay.removeListener('press', okay);
       prompt._.cancel.removeListener('press', cancel);
       return callback(err, data);
