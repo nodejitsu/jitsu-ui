@@ -125,7 +125,8 @@ function start(data, callback) {
     selectedBg: 'blue',
     items: ['user'].concat(data.apps.map(function(app) {
       return app.name;
-    }))
+    })),
+    itemHoverBg: 'blue'
   });
 
   side.on('select', function() {
@@ -159,13 +160,13 @@ function start(data, callback) {
   });
 
   main.on('focus', function() {
-    sep._fg = sep.fg;
+    if (sep.border._fg == null) sep.border._fg = sep.border.fg;
     sep.border.fg = 4;
     screen.render();
   });
 
   main.on('blur', function() {
-    if (sep._fg) sep.border.fg = sep._fg;
+    if (sep.border._fg != null) sep.border.fg = sep.border._fg;
     screen.render();
   });
 
@@ -198,7 +199,7 @@ function start(data, callback) {
     var t = '{light-black-fg}' + (++i) + '{/light-black-fg}' + ':' + text
       , tlen = (i + ':' + text).length;
 
-    bar._[text] = new blessed.Button({
+    var button = bar._[text] = new blessed.Button({
       parent: bar,
       top: 0,
       left: drawn + 1,
@@ -206,12 +207,17 @@ function start(data, callback) {
       content: t,
       width: tlen + 2,
       align: 'center',
-      tags: true
+      tags: true,
+      autoFocus: false,
+      //hoverBg: 'blue'
+      hoverEffects: {
+        bg: 'blue'
+      }
     });
 
-    bar._[text].on('press', function(ch, key) {
-      if (bar._[text]._.callback) {
-        bar._[text]._.callback();
+    button.on('press', function(ch, key) {
+      if (button._.callback) {
+        button._.callback();
       }
     });
 
@@ -239,7 +245,7 @@ function start(data, callback) {
     var id = app.user + '/' + app.name
       , focused = screen.focused;
 
-    bar._.deploy.focus();
+    //bar._.deploy.focus();
 
     function getPath(callback) {
       var cwd = process.cwd().replace(process.env.HOME, '~');
@@ -260,12 +266,12 @@ function start(data, callback) {
 
     return getPath(function(err, dir) {
       if (err) {
-        focused.focus();
+        //focused.focus();
         return msg._.error(err.message);
       }
 
       if (!dir) {
-        focused.focus();
+        //focused.focus();
         return;
       }
 
@@ -274,7 +280,7 @@ function start(data, callback) {
       function deploy(callback) {
         var args = ['deploy'];
         return getCloud(app, function(err, cloud) {
-          focused.focus();
+          //focused.focus();
 
           if (err) return msg._.error(err.message);
           if (!cloud) return;
@@ -342,9 +348,9 @@ function start(data, callback) {
 
       loading._.load('App is being {blue-fg}started{/}. Please wait...');
 
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
+      //if (opt.debug) {
+      //  return setTimeout(loading._.stop, 5000);
+      //}
 
       return api.apps.start(app.name, function(err) {
         if (err) {
@@ -373,9 +379,9 @@ function start(data, callback) {
 
       loading._.load('App is being {blue-fg}updated{/}. Please wait...');
 
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
+      //if (opt.debug) {
+      //  return setTimeout(loading._.stop, 5000);
+      //}
 
       return api.apps.endpoints(function(err, endpoints) {
         if (err) {
@@ -423,9 +429,9 @@ function start(data, callback) {
 
       loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
 
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
+      //if (opt.debug) {
+      //  return setTimeout(loading._.stop, 5000);
+      //}
 
       return api.apps.stop(app.name, function(err) {
         if (err) {
@@ -463,9 +469,9 @@ function start(data, callback) {
 
       loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
 
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
+      //if (opt.debug) {
+      //  return setTimeout(loading._.stop, 5000);
+      //}
 
       return api.apps.restart(app.name, function(err) {
         if (err) {
@@ -502,9 +508,9 @@ function start(data, callback) {
 
       loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
 
-      if (opt.debug) {
-        return setTimeout(loading._.stop, 5000);
-      }
+      //if (opt.debug) {
+      //  return setTimeout(loading._.stop, 5000);
+      //}
 
       return api.apps.destroy(app.name, function(err) {
         if (err) {
@@ -665,9 +671,9 @@ function start(data, callback) {
           'Snapshot is being {blue-fg}activated{/}.'
           + ' Please wait...');
 
-        if (opt.debug) {
-          return setTimeout(loading._.stop, 5000);
-        }
+        //if (opt.debug) {
+        //  return setTimeout(loading._.stop, 5000);
+        //}
 
         return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
           if (err) return msg._.error(err.message);
@@ -742,9 +748,9 @@ function start(data, callback) {
             'Environment variable is being {blue-fg}set{/}.'
             + ' Please wait...');
 
-          if (opt.debug) {
-            return setTimeout(loading._.stop, 5000);
-          }
+          //if (opt.debug) {
+          //  return setTimeout(loading._.stop, 5000);
+          //}
 
           return api.apps.update(app.name, body, function(err) {
             if (err) {
@@ -828,24 +834,29 @@ function start(data, callback) {
     screen.render();
   });
 
+  // TODO: Fix problem when list item is clicked/focus when sidebar is unfocused.
+  // No background.
   side.on('focus', function() {
     var el = side.items[side.selected];
-    if (side._selectedBg) {
+    if (side._selectedBg != null) {
       side.selectedBg = side._selectedBg;
-      delete side._selectedBg;
     }
-    if (el._bg) {
-      el.bg = el._bg;
-      delete el._bg;
+    if (el._bg != null) {
+      el.bg = side.selectedBg;
     }
+    //el.bg = side.selectedBg;
     screen.render();
   });
 
   side.on('blur', function() {
     var el = side.items[side.selected];
-    side._selectedBg = side.selectedBg;
+    if (side._selectedBg == null) {
+      side._selectedBg = side.selectedBg;
+    }
     side.selectedBg = 0;
-    el._bg = el.bg;
+    if (el._bg == null) {
+      el._bg = el.bg;
+    }
     el.bg = 0;
     screen.render();
   });
@@ -1224,7 +1235,9 @@ function createPrompt() {
     width: 6,
     content: 'Okay',
     align: 'center',
-    bg: 'black'
+    bg: 'black',
+    hoverBg: 'blue',
+    autoFocus: false
   });
 
   prompt._.cancel = new blessed.Button({
@@ -1236,7 +1249,9 @@ function createPrompt() {
     width: 8,
     content: 'Cancel',
     align: 'center',
-    bg: 'black'
+    bg: 'black',
+    hoverBg: 'blue',
+    autoFocus: false
   });
 
   prompt._.type = function(text, value, callback) {
