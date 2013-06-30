@@ -1323,7 +1323,9 @@ function createQuestion() {
     width: 6,
     content: 'Okay',
     align: 'center',
-    bg: 'black'
+    bg: 'black',
+    hoverBg: 'blue',
+    autoFocus: false
   });
 
   question._.cancel = new blessed.Button({
@@ -1335,7 +1337,9 @@ function createQuestion() {
     width: 8,
     content: 'Cancel',
     align: 'center',
-    bg: 'black'
+    bg: 'black',
+    hoverBg: 'blue',
+    autoFocus: false
   });
 
   question._.ask = function(text, callback) {
