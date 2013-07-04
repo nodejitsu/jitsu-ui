@@ -147,10 +147,10 @@ function start(data, callback) {
     keys: true,
     vi: true,
     scrollbar: {
-      //bg: 'blue',
-      fg: 'blue',
-      //ch: '|'
-      ch: '│'
+      //fg: 'blue',
+      //ch: '│'
+      bg: 'blue',
+      ch: ' '
     },
     tags: true,
     left: data.longest + 4,
@@ -698,12 +698,17 @@ function start(data, callback) {
         data.push(key + '=' + env[key]);
       });
 
+      var focused = screen.focused;
+      //screen.saveFocus();
+
       mlist._.show(data);
 
       screen.render();
 
       mlist.on('action', function fn(el, index) {
         if (!el) {
+          //screen.restoreFocus();
+          focused.focus();
           mlist.removeListener('action', fn);
           return;
         }
@@ -712,8 +717,10 @@ function start(data, callback) {
           if (index === 0) {
             return prompt._.type('Name:', function(err, key) {
               if (err) return callback(err);
+              if (key == null) return callback();
               return prompt._.type('Value of ' + key + ':', function(err, res) {
                 if (err) return callback(err);
+                if (res == null) return callback();
                 return callback(null, key, res);
               });
             });
@@ -725,6 +732,7 @@ function start(data, callback) {
 
           return prompt._.type('Value of ' + key + ':', val, function(err, res) {
             if (err) return callback(err);
+            if (res == null) return callback();
             return callback(null, key, res);
           });
         }
