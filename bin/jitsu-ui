@@ -647,6 +647,7 @@ function start(data, callback) {
     return api.snapshots.list(app.name, function(err, snapshots) {
       if (err) return msg._.error(err.message);
 
+      // TODO: Add {green-fg} to active snapshot.
       var data = snapshots.map(function(snapshot) {
         return snapshot.id
           + ' - '
