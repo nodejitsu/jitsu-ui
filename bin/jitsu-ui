@@ -1129,10 +1129,8 @@ function createScreen() {
   var screen = blessed.Screen.global || blessed.screen({ tput: true });
 
   if (!global) {
-    screen.program.on('keypress', function(ch, key) {
-      if (key.name === 'c' && key.ctrl) {
-        return process.exit(0);
-      }
+    screen.program.key('C-c', function() {
+      return process.exit(0);
     });
   }
 
