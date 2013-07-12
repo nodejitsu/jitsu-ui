@@ -192,12 +192,21 @@ function start(data, callback) {
     'snapshots',
     'env',
     'cloud',
-    'browse'
+    'browse',
+    'exit'
   ];
 
   commands.forEach(function(text, i) {
-    var t = '{light-black-fg}' + (++i) + '{/light-black-fg}' + ':' + text
-      , tlen = (i + ':' + text).length;
+    var t, tlen;
+
+    if (text !== 'exit') {
+      i++;
+    } else {
+      i = 'ESC';
+    }
+
+    t = '{light-black-fg}' + i + '{/light-black-fg}' + ':' + text;
+    tlen = (i + ':' + text).length;
 
     var button = bar._[text] = new blessed.Button({
       parent: bar,
@@ -790,6 +799,10 @@ function start(data, callback) {
         ;
       });
     }
+  };
+
+  bar._.exit._.callback = function() {
+    screen.emit('keypress', '\x1b', { name: 'escape' });
   };
 
   screen.on('element focus', function(old, cur) {
