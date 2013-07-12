@@ -13,7 +13,7 @@
   "tags": ["nodejitsu", "jitsu", "tui"],
   "scripts": { "test": "node test/tput.js" },
   "dependencies": {
-    "blessed": ">= 0.0.7",
+    "blessed": ">= 0.0.10",
     "nodejitsu-api": ">= 0.4.6"
   }
 }
