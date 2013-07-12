@@ -488,7 +488,7 @@ function start(data, callback) {
                 return;
               }
 
-              var i = data.indexOf(el.content.replace(/\{[^{}]+\}/g, ''));
+              var i = data.indexOf(el.content);
 
               loading._.load(
                 'Snapshot is being {blue-fg}activated{/}.'
