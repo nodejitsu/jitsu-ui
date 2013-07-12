@@ -113,7 +113,7 @@ function start(data, callback) {
 
   var screen = createScreen();
 
-  var side = new blessed.List({
+  var side = blessed.list({
     parent: screen,
     mouse: true,
     keys: true,
@@ -133,7 +133,7 @@ function start(data, callback) {
     main.focus();
   });
 
-  var sep = new blessed.Line({
+  var sep = blessed.line({
     parent: screen,
     orientation: 'vertical',
     left: data.longest + 2,
@@ -141,7 +141,7 @@ function start(data, callback) {
     bottom: 0
   });
 
-  var main = new blessed.ScrollableText({
+  var main = blessed.scrollabletext({
     parent: screen,
     mouse: true,
     keys: true,
@@ -159,18 +159,9 @@ function start(data, callback) {
     right: 0
   });
 
-  main.on('focus', function() {
-    if (sep.border._fg == null) sep.border._fg = sep.border.fg;
-    sep.border.fg = 4;
-    screen.render();
-  });
+  screen.setEffects(sep, main, 'focus', 'blur', { border: { fg: 'blue' } });
 
-  main.on('blur', function() {
-    if (sep.border._fg != null) sep.border.fg = sep.border._fg;
-    screen.render();
-  });
-
-  var bar = new blessed.Box({
+  var bar = blessed.box({
     parent: screen,
     left: data.longest + 3,
     right: 0,
@@ -182,628 +173,649 @@ function start(data, callback) {
   });
 
   var drawn = 0;
-  var commands = [
-    'deploy',
-    'destroy',
-    'start',
-    'restart',
-    'stop',
-    'logs',
-    'snapshots',
-    'env',
-    'cloud',
-    'browse',
-    'exit'
-  ];
+  var commands = {
+    'deploy': {
+      prefix: '1',
+      keys: ['1'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
 
-  commands.forEach(function(text, i) {
-    var t, tlen;
+        var id = app.user + '/' + app.name
+          , focused = screen.focused;
 
-    if (text !== 'exit') {
-      i++;
-    } else {
-      i = 'ESC';
-    }
+        //bar._.deploy.focus();
 
-    t = '{light-black-fg}' + i + '{/light-black-fg}' + ':' + text;
-    tlen = (i + ':' + text).length;
+        function getPath(callback) {
+          var cwd = process.cwd().replace(process.env.HOME, '~');
 
-    var button = bar._[text] = new blessed.Button({
-      parent: bar,
-      top: 0,
-      left: drawn + 1,
-      height: 1,
-      content: t,
-      width: tlen + 2,
-      align: 'center',
-      tags: true,
-      autoFocus: false,
-      //hoverBg: 'blue'
-      hoverEffects: {
-        bg: 'blue'
-      }
-    });
+          if (cwd[cwd.length-1] !== '/') cwd += '/';
 
-    button.on('press', function(ch, key) {
-      if (button._.callback) {
-        button._.callback();
-      }
-    });
-
-    drawn += tlen + 3;
-  });
-
-  screen.on('keypress', function(ch) {
-    var i = '1234567890-='.indexOf(ch)
-      , command;
-
-    if (~i) {
-      command = commands[i];
-      if (!command || !bar._[command]) {
-        return;
-      }
-      if (bar._[command]._.callback) {
-        bar._[command]._.callback();
-      }
-    }
-  });
-
-  bar._.deploy._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var id = app.user + '/' + app.name
-      , focused = screen.focused;
-
-    //bar._.deploy.focus();
-
-    function getPath(callback) {
-      var cwd = process.cwd().replace(process.env.HOME, '~');
-
-      if (cwd[cwd.length-1] !== '/') cwd += '/';
-
-      if (cache[id]) {
-        return callback(null, cache[id]);
-      }
-
-      var text = 'Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})';
-
-      return prompt._.type(text, cwd, function(err, res) {
-        if (err) return callback(err);
-        return callback(null, res);
-      });
-    }
-
-    return getPath(function(err, dir) {
-      if (err) {
-        //focused.focus();
-        return msg._.error(err.message);
-      }
-
-      if (!dir) {
-        //focused.focus();
-        return;
-      }
-
-      dir = dir.replace(/^~/, process.env.HOME);
-
-      function deploy(callback) {
-        var args = ['deploy'];
-        return getCloud(app, function(err, cloud) {
-          //focused.focus();
-
-          if (err) return msg._.error(err.message);
-          if (!cloud) return;
-
-          loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
-
-          if (opt.debug) {
-            return setTimeout(loading._.stop, 5000);
+          if (cache[id]) {
+            return callback(null, cache[id]);
           }
 
-          args.push('--provider');
-          args.push(cloud.provider);
-          args.push('--datacenter');
-          args.push(cloud.datacenter);
-          args.push('--drones');
-          args.push(cloud.drones);
-          args.push('--ram');
-          args.push(cloud.ram);
+          var text = 'Deploy from where? (e.g. {blue-fg}~/node_modules/foobar{/})';
 
-          return jitsu(args, dir, callback);
-        });
-      }
-
-      return deploy(function(err, success) {
-        if (err) {
-          loading._.stop();
-          return msg._.error(err.message);
+          return prompt._.type(text, cwd, function(err, res) {
+            if (err) return callback(err);
+            return callback(null, res);
+          });
         }
 
-        if (!success) {
-          loading._.stop();
-          return msg._.error('Deploy was not successful.');
-        }
-
-        cache[id] = dir;
-
-        return refreshData(function() {
-          loading._.stop();
-        });
-      });
-    });
-  };
-
-  bar._.start._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var focused = screen.focused;
-    bar._.start.focus();
-
-    var text = 'Are you sure you want to {blue-fg}start{/} {green-fg}'
-      + app.name + '{/}? (y/n)';
-
-    return question._.ask(text, function(err, res) {
-      focused.focus();
-
-      if (err) {
-        loading._.stop();
-        return msg._.error(err.message);
-      }
-
-      if (!res) {
-        loading._.stop();
-        return;
-      }
-
-      loading._.load('App is being {blue-fg}started{/}. Please wait...');
-
-      //if (opt.debug) {
-      //  return setTimeout(loading._.stop, 5000);
-      //}
-
-      return api.apps.start(app.name, function(err) {
-        if (err) {
-          loading._.stop();
-          return msg._.error(err.message);
-        }
-        return refreshData(function() {
-          loading._.stop();
-        });
-      });
-    });
-  };
-
-  bar._.cloud._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var focused = screen.focused;
-    bar._.cloud.focus();
-
-    return getCloud(app, function(err, cloud) {
-      focused.focus();
-
-      if (err) return msg._.error(err.message);
-
-      if (!cloud) return;
-
-      loading._.load('App is being {blue-fg}updated{/}. Please wait...');
-
-      //if (opt.debug) {
-      //  return setTimeout(loading._.stop, 5000);
-      //}
-
-      return api.apps.endpoints(function(err, endpoints) {
-        if (err) {
-          loading._.stop();
-          return msg._.error(err.message);
-        }
-        return api.apps.datacenter(app.name, cloud, function(err) {
+        return getPath(function(err, dir) {
           if (err) {
-            loading._.stop();
+            //focused.focus();
             return msg._.error(err.message);
           }
-          return refreshData(function() {
-            var tld = endpoints[cloud.provider][cloud.datacenter];
-            loading._.stop();
-            msg._.log('Running on http://'
-              + app.subdomain
-              + tld.replace('api', ''));
-          });
-        });
-      });
-    });
-  };
 
-  bar._.stop._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
+          if (!dir) {
+            //focused.focus();
+            return;
+          }
 
-    var focused = screen.focused;
-    bar._.stop.focus();
+          dir = dir.replace(/^~/, process.env.HOME);
 
-    var text = 'Are you sure you want to {blue-fg}stop{/} {green-fg}'
-      + app.name + '{/}? (y/n)';
+          function deploy(callback) {
+            var args = ['deploy'];
+            return getCloud(app, function(err, cloud) {
+              //focused.focus();
 
-    return question._.ask(text, function(err, res) {
-      focused.focus();
+              if (err) return msg._.error(err.message);
+              if (!cloud) return;
 
-      if (err) {
-        loading._.stop();
-        return msg._.error(err.message);
-      }
+              loading._.load('App is being {blue-fg}deployed{/}. Please wait...');
 
-      if (!res) {
-        loading._.stop();
-        return;
-      }
+              if (opt.debug) {
+                return setTimeout(loading._.stop, 5000);
+              }
 
-      loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
+              args.push('--provider');
+              args.push(cloud.provider);
+              args.push('--datacenter');
+              args.push(cloud.datacenter);
+              args.push('--drones');
+              args.push(cloud.drones);
+              args.push('--ram');
+              args.push(cloud.ram);
 
-      //if (opt.debug) {
-      //  return setTimeout(loading._.stop, 5000);
-      //}
-
-      return api.apps.stop(app.name, function(err) {
-        if (err) {
-          loading._.stop();
-          return msg._.error(err.message);
-        }
-        return refreshData(function() {
-          loading._.stop();
-        });
-      });
-    });
-  };
-
-  bar._.restart._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var focused = screen.focused;
-    bar._.restart.focus();
-
-    var text = 'Are you sure you want to restart {blue-fg}restart{/} {green-fg}'
-      + app.name + '{/}? (y/n)';
-
-    return question._.ask(text, function(err, res) {
-      focused.focus();
-
-      if (err) {
-        loading._.stop();
-        return msg._.error(err.message);
-      }
-
-      if (!res) {
-        loading._.stop();
-        return;
-      }
-
-      loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
-
-      //if (opt.debug) {
-      //  return setTimeout(loading._.stop, 5000);
-      //}
-
-      return api.apps.restart(app.name, function(err) {
-        if (err) {
-          loading._.stop();
-          return msg._.error(err.message);
-        }
-        return refreshData(function() {
-          loading._.stop();
-        });
-      });
-    });
-  };
-
-  bar._.destroy._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var focused = screen.focused;
-    bar._.destroy.focus();
-
-    var text = 'Are you sure you want to destroy this?'
-      + ' If so, type the app name.';
-
-    return prompt._.type(text, function(err, res) {
-      focused.focus();
-
-      if (err) return msg._.error(err.message);
-
-      if (!res) return;
-
-      if (res !== app.name) {
-        msg._.error('Bad app name.');
-        return;
-      }
-
-      loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
-
-      //if (opt.debug) {
-      //  return setTimeout(loading._.stop, 5000);
-      //}
-
-      return api.apps.destroy(app.name, function(err) {
-        if (err) {
-          loading._.stop();
-          return msg._.error(err.message);
-        }
-        return refreshData(function() {
-          loading._.stop();
-        });
-      });
-    });
-  };
-
-  bar._.logs._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var time
-      , done
-      , data;
-
-    (function poll() {
-      return api.logs.byApp(app.name, 20, function(err, results) {
-        if (done) return;
-
-        results = results || {};
-        results.data = results.data || [];
-
-        data = [];
-
-        function sort(first, second) {
-          //return new Date(first.timestamp) - new Date(second.timestamp);
-          return new Date(second.timestamp) - new Date(first.timestamp);
-        }
-
-        results.data.sort(sort).forEach(function(log) {
-          if (log.json && log.json.message != null) {
-            data.push({
-              date: new Date(log.timestamp),
-              message: log.json.message,
-              dmessage: new Date(log.timestamp).toUTCString() + '\n' + log.json.message,
-              text: log.json.message.split('\n')[0],
+              return jitsu(args, dir, callback);
             });
           }
-        });
 
-        var items = data.map(function(log) {
-          return log.text;
-        });
+          return deploy(function(err, success) {
+            if (err) {
+              loading._.stop();
+              return msg._.error(err.message);
+            }
 
-        if (!items.length) {
-          items.push('--- No logs. ---');
-        }
+            if (!success) {
+              loading._.stop();
+              return msg._.error('Deploy was not successful.');
+            }
 
-        if (screen.focused !== mlist) {
-          mlist._.show(items);
-        } else {
-          mlist.setItems(items);
-        }
+            cache[id] = dir;
 
-        screen.render();
-
-        time = setTimeout(poll, 10 * 1000);
-      });
-    })();
-
-    mlist.on('action', function fn(el, index) {
-      if (!el) {
-        done = true;
-        if (time) clearTimeout(time);
-        mlist.removeListener('action', fn);
-        return;
-      }
-      if (!data[index]) return;
-      info._.show(data[index].dmessage, function() {
-      });
-    });
-  };
-
-  bar._.logs._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    var time
-      , done;
-
-    screen.saveFocus();
-    main.focus();
-
-    (function poll() {
-      return api.logs.byApp(app.name, 20, function(err, results) {
-        if (done) return;
-
-        var out = '';
-
-        results = results || {};
-        results.data = results.data || [];
-
-        function sort(first, second) {
-          return new Date(second.timestamp) - new Date(first.timestamp);
-        }
-
-        results.data.sort(sort).forEach(function(log) {
-          if (log.json && log.json.message != null) {
-            out += new Date(log.timestamp).toUTCString() + '\n';
-            out += log.json.message;
-          }
-        });
-
-        if (!results.data.length) {
-          out = '--- No logs. ---';
-        }
-
-        main.setContent(out);
-
-        screen.render();
-
-        time = setTimeout(poll, 10 * 1000);
-      });
-    })();
-
-    main.on('keypress', function fn(ch, key) {
-      if (key.name === 'escape' || key.name === 'q') {
-        done = true;
-        if (time) clearTimeout(time);
-        side.emit('scroll');
-        main.removeListener('keypress', fn);
-        screen.restoreFocus();
-      }
-    });
-  };
-
-  bar._.snapshots._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
-
-    return api.snapshots.list(app.name, function(err, snapshots) {
-      if (err) return msg._.error(err.message);
-
-      // TODO: Add {green-fg} to active snapshot.
-      var data = snapshots.map(function(snapshot) {
-        return snapshot.id
-          + ' - '
-          + snapshot.filename
-          + ' - '
-          + new Date(snapshot.ctime).toUTCString();
-      });
-
-      mlist._.show(data);
-
-      screen.render();
-
-      mlist.once('action', function fn(el, index) {
-        if (!el) {
-          mlist.removeListener('action', fn);
-          return;
-        }
-
-        var i = data.indexOf(el.content);
-
-        loading._.load(
-          'Snapshot is being {blue-fg}activated{/}.'
-          + ' Please wait...');
-
-        //if (opt.debug) {
-        //  return setTimeout(loading._.stop, 5000);
-        //}
-
-        return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
-          if (err) return msg._.error(err.message);
-          return refreshData(function() {
-            loading._.stop();
+            return refreshData(function() {
+              loading._.stop();
+            });
           });
         });
-      });
-    });
-  };
+      }
+    },
 
-  bar._.env._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
+    'destroy': {
+      prefix: '2',
+      keys: ['2'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
 
-    return api.apps.view(app.name, function(err, app) {
-      if (err) return msg._.error(err.message);
+        var focused = screen.focused;
+        bar._.destroy.focus();
 
-      var env = app.env || {}
-        , data = ['-- New --'];
+        var text = 'Are you sure you want to destroy this?'
+          + ' If so, type the app name.';
 
-      Object.keys(env).forEach(function(key) {
-        data.push(key + '=' + env[key]);
-      });
-
-      var focused = screen.focused;
-      //screen.saveFocus();
-
-      mlist._.show(data);
-
-      screen.render();
-
-      mlist.on('action', function fn(el, index) {
-        if (!el) {
-          //screen.restoreFocus();
+        return prompt._.type(text, function(err, res) {
           focused.focus();
-          mlist.removeListener('action', fn);
-          return;
-        }
-
-        function getVal(callback) {
-          if (index === 0) {
-            return prompt._.type('Name:', function(err, key) {
-              if (err) return callback(err);
-              if (key == null) return callback();
-              return prompt._.type('Value of ' + key + ':', function(err, res) {
-                if (err) return callback(err);
-                if (res == null) return callback();
-                return callback(null, key, res);
-              });
-            });
-          }
-
-          var parts = data[index].split('=')
-            , key = parts[0]
-            , val = parts[1];
-
-          return prompt._.type('Value of ' + key + ':', val, function(err, res) {
-            if (err) return callback(err);
-            if (res == null) return callback();
-            return callback(null, key, res);
-          });
-        }
-
-        return getVal(function(err, key, val) {
-          mlist.focus();
 
           if (err) return msg._.error(err.message);
 
-          if (key == null || val == null) return;
+          if (!res) return;
 
-          var body = { env: app.env || {} };
-
-          if (val === '') {
-            delete body.env[key];
-          } else {
-            body.env[key] = val;
+          if (res !== app.name) {
+            msg._.error('Bad app name.');
+            return;
           }
 
-          loading._.load(
-            'Environment variable is being {blue-fg}set{/}.'
-            + ' Please wait...');
+          loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
 
           //if (opt.debug) {
           //  return setTimeout(loading._.stop, 5000);
           //}
 
-          return api.apps.update(app.name, body, function(err) {
+          return api.apps.destroy(app.name, function(err) {
             if (err) {
               loading._.stop();
               return msg._.error(err.message);
             }
             return refreshData(function() {
-              mlist.removeListener('action', fn);
               loading._.stop();
-              bar._.env._.callback();
             });
           });
         });
-      });
-    });
-  };
+      }
+    },
 
-  bar._.browse._.callback = function() {
-    if (!app) return msg._.error('Not an app!');
+    'start': {
+      prefix: '3',
+      keys: ['3'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
 
-    try {
-      require('opener')('https://' + (app.domain
-        || (app.domains && app.domains[0])
-        || (app.subdomain + '.jit.su'))
-      );
-    } catch (e) {
-      jitsu(['apps', 'browse', app.name], function() {
-        ;
-      });
+        var focused = screen.focused;
+        bar._.start.focus();
+
+        var text = 'Are you sure you want to {blue-fg}start{/} {green-fg}'
+          + app.name + '{/}? (y/n)';
+
+        return question._.ask(text, function(err, res) {
+          focused.focus();
+
+          if (err) {
+            loading._.stop();
+            return msg._.error(err.message);
+          }
+
+          if (!res) {
+            loading._.stop();
+            return;
+          }
+
+          loading._.load('App is being {blue-fg}started{/}. Please wait...');
+
+          //if (opt.debug) {
+          //  return setTimeout(loading._.stop, 5000);
+          //}
+
+          return api.apps.start(app.name, function(err) {
+            if (err) {
+              loading._.stop();
+              return msg._.error(err.message);
+            }
+            return refreshData(function() {
+              loading._.stop();
+            });
+          });
+        });
+      }
+    },
+
+    'restart': {
+      prefix: '4',
+      keys: ['4'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        var focused = screen.focused;
+        bar._.restart.focus();
+
+        var text = 'Are you sure you want to restart {blue-fg}restart{/} {green-fg}'
+          + app.name + '{/}? (y/n)';
+
+        return question._.ask(text, function(err, res) {
+          focused.focus();
+
+          if (err) {
+            loading._.stop();
+            return msg._.error(err.message);
+          }
+
+          if (!res) {
+            loading._.stop();
+            return;
+          }
+
+          loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
+
+          //if (opt.debug) {
+          //  return setTimeout(loading._.stop, 5000);
+          //}
+
+          return api.apps.restart(app.name, function(err) {
+            if (err) {
+              loading._.stop();
+              return msg._.error(err.message);
+            }
+            return refreshData(function() {
+              loading._.stop();
+            });
+          });
+        });
+      }
+    },
+
+    'stop': {
+      prefix: '5',
+      keys: ['5'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        var focused = screen.focused;
+        bar._.stop.focus();
+
+        var text = 'Are you sure you want to {blue-fg}stop{/} {green-fg}'
+          + app.name + '{/}? (y/n)';
+
+        return question._.ask(text, function(err, res) {
+          focused.focus();
+
+          if (err) {
+            loading._.stop();
+            return msg._.error(err.message);
+          }
+
+          if (!res) {
+            loading._.stop();
+            return;
+          }
+
+          loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
+
+          //if (opt.debug) {
+          //  return setTimeout(loading._.stop, 5000);
+          //}
+
+          return api.apps.stop(app.name, function(err) {
+            if (err) {
+              loading._.stop();
+              return msg._.error(err.message);
+            }
+            return refreshData(function() {
+              loading._.stop();
+            });
+          });
+        });
+      }
+    },
+
+    'logs': {
+      prefix: '6',
+      keys: ['6'],
+      callback_: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        var time
+          , done
+          , data;
+
+        (function poll() {
+          return api.logs.byApp(app.name, 20, function(err, results) {
+            if (done) return;
+
+            results = results || {};
+            results.data = results.data || [];
+
+            data = [];
+
+            function sort(first, second) {
+              //return new Date(first.timestamp) - new Date(second.timestamp);
+              return new Date(second.timestamp) - new Date(first.timestamp);
+            }
+
+            results.data.sort(sort).forEach(function(log) {
+              if (log.json && log.json.message != null) {
+                data.push({
+                  date: new Date(log.timestamp),
+                  message: log.json.message,
+                  dmessage: new Date(log.timestamp).toUTCString() + '\n' + log.json.message,
+                  text: log.json.message.split('\n')[0],
+                });
+              }
+            });
+
+            var items = data.map(function(log) {
+              return log.text;
+            });
+
+            if (!items.length) {
+              items.push('--- No logs. ---');
+            }
+
+            if (screen.focused !== mlist) {
+              mlist._.show(items);
+            } else {
+              mlist.setItems(items);
+            }
+
+            screen.render();
+
+            time = setTimeout(poll, 10 * 1000);
+          });
+        })();
+
+        mlist.on('action', function fn(el, index) {
+          if (!el) {
+            done = true;
+            if (time) clearTimeout(time);
+            mlist.removeListener('action', fn);
+            return;
+          }
+          if (!data[index]) return;
+          info._.show(data[index].dmessage, function() {
+          });
+        });
+      },
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        var time
+          , done;
+
+        screen.saveFocus();
+        main.focus();
+
+        (function poll() {
+          return api.logs.byApp(app.name, 20, function(err, results) {
+            if (done) return;
+
+            var out = '';
+
+            results = results || {};
+            results.data = results.data || [];
+
+            function sort(first, second) {
+              return new Date(second.timestamp) - new Date(first.timestamp);
+            }
+
+            results.data.sort(sort).forEach(function(log) {
+              if (log.json && log.json.message != null) {
+                out += new Date(log.timestamp).toUTCString() + '\n';
+                out += log.json.message;
+              }
+            });
+
+            if (!results.data.length) {
+              out = '--- No logs. ---';
+            }
+
+            main.setContent(out);
+
+            screen.render();
+
+            time = setTimeout(poll, 10 * 1000);
+          });
+        })();
+
+        main.on('keypress', function fn(ch, key) {
+          if (key.name === 'escape' || key.name === 'q') {
+            done = true;
+            if (time) clearTimeout(time);
+            side.emit('scroll');
+            main.removeListener('keypress', fn);
+            screen.restoreFocus();
+          }
+        });
+      }
+    },
+
+    'snapshots': {
+      prefix: '7',
+      keys: ['7'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        return api.snapshots.list(app.name, function(err, snapshots) {
+          if (err) return msg._.error(err.message);
+
+          // TODO: Add {green-fg} to active snapshot.
+          var data = snapshots.map(function(snapshot) {
+            return snapshot.id
+              + ' - '
+              + snapshot.filename
+              + ' - '
+              + new Date(snapshot.ctime).toUTCString();
+          });
+
+          mlist._.show(data);
+
+          screen.render();
+
+          mlist.once('action', function fn(el, index) {
+            if (!el) {
+              mlist.removeListener('action', fn);
+              return;
+            }
+
+            var i = data.indexOf(el.content);
+
+            loading._.load(
+              'Snapshot is being {blue-fg}activated{/}.'
+              + ' Please wait...');
+
+            //if (opt.debug) {
+            //  return setTimeout(loading._.stop, 5000);
+            //}
+
+            return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
+              if (err) return msg._.error(err.message);
+              return refreshData(function() {
+                loading._.stop();
+              });
+            });
+          });
+        });
+      }
+    },
+
+    'env': {
+      prefix: '8',
+      keys: ['8'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        return api.apps.view(app.name, function(err, app) {
+          if (err) return msg._.error(err.message);
+
+          var env = app.env || {}
+            , data = ['-- New --'];
+
+          Object.keys(env).forEach(function(key) {
+            data.push(key + '=' + env[key]);
+          });
+
+          var focused = screen.focused;
+          //screen.saveFocus();
+
+          mlist._.show(data);
+
+          screen.render();
+
+          mlist.on('action', function fn(el, index) {
+            if (!el) {
+              //screen.restoreFocus();
+              focused.focus();
+              mlist.removeListener('action', fn);
+              return;
+            }
+
+            function getVal(callback) {
+              if (index === 0) {
+                return prompt._.type('Name:', function(err, key) {
+                  if (err) return callback(err);
+                  if (key == null) return callback();
+                  return prompt._.type('Value of ' + key + ':', function(err, res) {
+                    if (err) return callback(err);
+                    if (res == null) return callback();
+                    return callback(null, key, res);
+                  });
+                });
+              }
+
+              var parts = data[index].split('=')
+                , key = parts[0]
+                , val = parts[1];
+
+              return prompt._.type('Value of ' + key + ':', val, function(err, res) {
+                if (err) return callback(err);
+                if (res == null) return callback();
+                return callback(null, key, res);
+              });
+            }
+
+            return getVal(function(err, key, val) {
+              mlist.focus();
+
+              if (err) return msg._.error(err.message);
+
+              if (key == null || val == null) return;
+
+              var body = { env: app.env || {} };
+
+              if (val === '') {
+                delete body.env[key];
+              } else {
+                body.env[key] = val;
+              }
+
+              loading._.load(
+                'Environment variable is being {blue-fg}set{/}.'
+                + ' Please wait...');
+
+              //if (opt.debug) {
+              //  return setTimeout(loading._.stop, 5000);
+              //}
+
+              return api.apps.update(app.name, body, function(err) {
+                if (err) {
+                  loading._.stop();
+                  return msg._.error(err.message);
+                }
+                return refreshData(function() {
+                  mlist.removeListener('action', fn);
+                  loading._.stop();
+                  bar._.env._.callback();
+                });
+              });
+            });
+          });
+        });
+      }
+    },
+
+    'cloud': {
+      prefix: '9',
+      keys: ['9'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        var focused = screen.focused;
+        bar._.cloud.focus();
+
+        return getCloud(app, function(err, cloud) {
+          focused.focus();
+
+          if (err) return msg._.error(err.message);
+
+          if (!cloud) return;
+
+          loading._.load('App is being {blue-fg}updated{/}. Please wait...');
+
+          //if (opt.debug) {
+          //  return setTimeout(loading._.stop, 5000);
+          //}
+
+          return api.apps.endpoints(function(err, endpoints) {
+            if (err) {
+              loading._.stop();
+              return msg._.error(err.message);
+            }
+            return api.apps.datacenter(app.name, cloud, function(err) {
+              if (err) {
+                loading._.stop();
+                return msg._.error(err.message);
+              }
+              return refreshData(function() {
+                var tld = endpoints[cloud.provider][cloud.datacenter];
+                loading._.stop();
+                msg._.log('Running on http://'
+                  + app.subdomain
+                  + tld.replace('api', ''));
+              });
+            });
+          });
+        });
+      }
+    },
+
+    'browse': {
+      prefix: '0',
+      keys: ['0'],
+      callback: function() {
+        if (!app) return msg._.error('Not an app!');
+
+        try {
+          require('opener')('https://' + (app.domain
+            || (app.domains && app.domains[0])
+            || (app.subdomain + '.jit.su'))
+          );
+        } catch (e) {
+          jitsu(['apps', 'browse', app.name], function() {
+            ;
+          });
+        }
+      }
+    },
+
+    'exit': {
+      prefix: 'ESC',
+      //keys: ['escape'],
+      callback: function() {
+        screen.emit('keypress', '\x1b', { name: 'escape' });
+      }
     }
   };
 
-  bar._.exit._.callback = function() {
-    screen.emit('keypress', '\x1b', { name: 'escape' });
-  };
+  Object.keys(commands).forEach(function(name) {
+    var cmd = commands[name]
+      , title
+      , len
+      , button;
+
+    title = '{light-black-fg}'
+      + cmd.prefix
+      + '{/light-black-fg}'
+      + ':'
+      + name;
+
+    len = (cmd.prefix + ':' + name).length;
+
+    button = blessed.button({
+      parent: bar,
+      top: 0,
+      left: drawn + 1,
+      height: 1,
+      content: title,
+      width: len + 2,
+      align: 'center',
+      tags: true,
+      autoFocus: false,
+      hoverEffects: {
+        bg: 'blue'
+      }
+    });
+
+    bar._[name] = button;
+    cmd.element = button;
+
+    if (cmd.callback) {
+      button.on('press', cmd.callback);
+      if (cmd.keys) {
+        screen.key(cmd.keys[0], cmd.callback);
+      }
+    }
+
+    drawn += len + 3;
+  });
 
   screen.on('element focus', function(old, cur) {
     if (old._bg) old.bg = old._bg;
@@ -886,7 +898,7 @@ function start(data, callback) {
   side.select(0);
   side.focus();
 
-  var mlist = new blessed.List({
+  var mlist = blessed.list({
     parent: screen,
     left: main.left,
     top: main.top,
@@ -917,7 +929,7 @@ function start(data, callback) {
   var prompt = createPrompt();
   var question = createQuestion();
 
-  var loading = new blessed.Box({
+  var loading = blessed.box({
     parent: screen,
     hidden: true,
     top: 'center',
@@ -931,7 +943,7 @@ function start(data, callback) {
     align: 'center'
   });
 
-  loading._.icon = new blessed.Text({
+  loading._.icon = blessed.text({
     parent: loading,
     align: 'center',
     top: 2,
@@ -972,7 +984,7 @@ function start(data, callback) {
     screen.render();
   };
 
-  var msg = new blessed.Box({
+  var msg = blessed.box({
     parent: screen,
     hidden: true,
     top: 'center',
@@ -1008,7 +1020,7 @@ function start(data, callback) {
     return msg._.show('{red-fg}Error: ' + text + '{/}', callback);
   };
 
-  var info = new blessed.Box({
+  var info = blessed.box({
     parent: screen,
     hidden: true,
     top: 'center',
@@ -1213,7 +1225,7 @@ function handleData(data) {
 }
 
 function createScreen() {
-  return blessed.Screen.global || new blessed.Screen({ tput: true });
+  return blessed.Screen.global || blessed.screen({ tput: true });
 }
 
 function createPrompt() {
@@ -1226,7 +1238,7 @@ function createPrompt() {
     return prompt;
   }
 
-  prompt = createPrompt.prompt = new blessed.Box({
+  prompt = createPrompt.prompt = blessed.box({
     parent: screen,
     hidden: true,
     content: '',
@@ -1240,7 +1252,7 @@ function createPrompt() {
     tags: true
   });
 
-  prompt._.input = new blessed.Textbox({
+  prompt._.input = blessed.textbox({
     parent: prompt,
     top: 3,
     height: 1,
@@ -1249,7 +1261,7 @@ function createPrompt() {
     bg: 'black'
   });
 
-  prompt._.okay = new blessed.Button({
+  prompt._.okay = blessed.button({
     parent: prompt,
     top: 5,
     height: 1,
@@ -1262,7 +1274,7 @@ function createPrompt() {
     autoFocus: false
   });
 
-  prompt._.cancel = new blessed.Button({
+  prompt._.cancel = blessed.button({
     parent: prompt,
     top: 5,
     height: 1,
@@ -1323,7 +1335,7 @@ function createQuestion() {
     return question;
   }
 
-  question = createQuestion.question = new blessed.Box({
+  question = createQuestion.question = blessed.box({
     parent: screen,
     hidden: true,
     content: '',
@@ -1337,7 +1349,7 @@ function createQuestion() {
     tags: true
   });
 
-  question._.okay = new blessed.Button({
+  question._.okay = blessed.button({
     parent: question,
     top: 3,
     height: 1,
@@ -1350,7 +1362,7 @@ function createQuestion() {
     autoFocus: false
   });
 
-  question._.cancel = new blessed.Button({
+  question._.cancel = blessed.button({
     parent: question,
     top: 3,
     height: 1,
