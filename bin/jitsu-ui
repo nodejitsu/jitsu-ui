@@ -435,6 +435,11 @@ function start(data, callback) {
             screen.restoreFocus();
           }
         });
+
+        main.once('blur', function() {
+          done = true;
+          if (time) clearTimeout(time);
+        });
       }
     },
 
