@@ -362,69 +362,6 @@ function start(data, callback) {
     'logs': {
       prefix: '6',
       keys: ['6'],
-      callback_: function() {
-        if (!app) return msg._.error('Not an app!');
-
-        var time
-          , done
-          , data;
-
-        (function poll() {
-          return api.logs.byApp(app.name, 20, function(err, results) {
-            if (done) return;
-
-            results = results || {};
-            results.data = results.data || [];
-
-            data = [];
-
-            function sort(first, second) {
-              return new Date(second.timestamp) - new Date(first.timestamp);
-            }
-
-            results.data.sort(sort).forEach(function(log) {
-              if (log.json && log.json.message != null) {
-                data.push({
-                  date: new Date(log.timestamp),
-                  message: log.json.message,
-                  dmessage: new Date(log.timestamp).toUTCString() + '\n' + log.json.message,
-                  text: log.json.message.split('\n')[0],
-                });
-              }
-            });
-
-            var items = data.map(function(log) {
-              return log.text;
-            });
-
-            if (!items.length) {
-              items.push('--- No logs. ---');
-            }
-
-            if (screen.focused !== mlist) {
-              mlist._.show(items);
-            } else {
-              mlist.setItems(items);
-            }
-
-            screen.render();
-
-            time = setTimeout(poll, 10 * 1000);
-          });
-        })();
-
-        mlist.on('action', function fn(el, index) {
-          if (!el) {
-            done = true;
-            if (time) clearTimeout(time);
-            mlist.removeListener('action', fn);
-            return;
-          }
-          if (!data[index]) return;
-          info._.show(data[index].dmessage, function() {
-          });
-        });
-      },
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
@@ -435,7 +372,6 @@ function start(data, callback) {
         main.focus();
 
         (function poll() {
-          // TODO: Use lockKeys in other places too.
           screen.lockKeys = true;
           return api.logs.byApp(app.name, 20, function(err, results) {
             screen.lockKeys = false;
@@ -490,12 +426,16 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
+        screen.lockKeys = true;
         return api.apps.view(app.name, function(err, app_) {
+          screen.lockKeys = false;
           if (err) return msg._.error(err.message);
 
           app = data._apps[side.selected - 1] = app_;
 
+          screen.lockKeys = true;
           return api.snapshots.list(app.name, function(err, snapshots) {
+            screen.lockKeys = false;
             if (err) return msg._.error(err.message);
 
             var active;
@@ -549,7 +489,9 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
+        screen.lockKeys = true;
         return api.apps.view(app.name, function(err, app_) {
+          screen.lockKeys = false;
           if (err) return msg._.error(err.message);
 
           app = data._apps[side.selected - 1] = app_;
@@ -625,7 +567,8 @@ function start(data, callback) {
                 return refreshData(function() {
                   mlist.removeListener('action', fn);
                   loading._.stop();
-                  bar._.env._.callback();
+                  focused.focus();
+                  commands.env.callback();
                 });
               });
             });
