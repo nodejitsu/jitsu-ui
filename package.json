@@ -6,6 +6,7 @@
   "main": "./bin/jitsu-ui",
   "bin": "./bin/jitsu-ui",
   "man": "./man/jitsu-ui.1",
+  "preferGlobal": true,
   "repository": "git://github.com/chjj/jitsu-ui.git",
   "homepage": "https://github.com/chjj/jitsu-ui",
   "bugs": { "url": "http://github.com/chjj/jitsu-ui/issues" },
