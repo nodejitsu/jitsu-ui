@@ -435,7 +435,11 @@ function start(data, callback) {
         main.focus();
 
         (function poll() {
+          // TODO: Use lockKeys in other places too.
+          screen.lockKeys = true;
           return api.logs.byApp(app.name, 20, function(err, results) {
+            screen.lockKeys = false;
+
             if (done) return;
 
             var out = '';
@@ -471,9 +475,9 @@ function start(data, callback) {
         main.on('keypress', function fn(ch, key) {
           if (key.name === 'escape' || key.name === 'q') {
             done = true;
+            main.removeListener('keypress', fn);
             if (time) clearTimeout(time);
             side.emit('scroll');
-            main.removeListener('keypress', fn);
             screen.restoreFocus();
           }
         });
