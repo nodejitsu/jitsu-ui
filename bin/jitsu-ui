@@ -653,7 +653,20 @@ function start(data, callback) {
     'exit': {
       prefix: 'ESC',
       callback: function() {
-        screen.emit('keypress', '\x1b', { name: 'escape' });
+        if (screen.focused === main) {
+          main.emit('keypress', '\x1b', { name: 'escape' });
+          if (screen.focused === main) {
+            side.focus();
+            screen.render();
+          }
+        } else if (screen.focused === mlist) {
+          mlist.emit('keypress', '\x1b', { name: 'escape' });
+        } else if (screen.focused === side) {
+          process.exit(0);
+        } else {
+          side.focus();
+          screen.render();
+        }
       }
     }
   };
@@ -714,13 +727,19 @@ function start(data, callback) {
       return;
     }
     if (key.name === 'escape') {
-      if (screen.focused === side) {
-        return process.exit(0);
-      }
-      if (screen.focused === main || screen.focused.parent === bar) {
+      if (screen.focused === main) {
+        main.emit('keypress', '\x1b', { name: 'escape' });
+        if (screen.focused === main) {
+          side.focus();
+          screen.render();
+        }
+      } else if (screen.focused === mlist) {
+        mlist.emit('keypress', '\x1b', { name: 'escape' });
+      } else if (screen.focused === side) {
+        process.exit(0);
+      } else {
         side.focus();
         screen.render();
-        return;
       }
     }
   });
@@ -786,6 +805,10 @@ function start(data, callback) {
     label: ' Please select a {green-fg}package.json{/green-fg}: ',
     border: {
       type: 'ascii'
+    },
+    scrollbar: {
+      ch: ' ',
+      bg: 'green'
     },
     mouse: true,
     keys: true,
@@ -1203,7 +1226,7 @@ function createPrompt() {
       prompt._.input.cancel();
     });
 
-    prompt._.input.setInput(function(err, data) {
+    prompt._.input.readInput(function(err, data) {
       prompt.hide();
       screen.restoreFocus();
       prompt._.okay.removeListener('press', okay);
