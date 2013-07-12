@@ -14,6 +14,7 @@
 var fs = require('fs')
   , blessed = require('blessed')
   , napi = require('nodejitsu-api')
+  , path = require('path')
   , cache = {}
   , api
   , config
@@ -142,16 +143,33 @@ function start(data, callback) {
       prefix: '1',
       keys: ['1'],
       callback: function() {
-        if (!app) return msg._.error('Not an app!');
-
-        var id = app.user + '/' + app.name;
+        var id = app
+          ? app.user + '/' + app.name
+          : null;
 
         function getPath(callback) {
           var cwd = process.cwd().replace(process.env.HOME, '~');
 
           if (cwd[cwd.length-1] !== '/') cwd += '/';
 
-          if (cache[id]) {
+          if (id && cache[id]) {
+            return callback(null, cache[id]);
+          }
+
+          return fm.pick(cwd, function(err, pkg) {
+            if (err) return callback(err);
+            if (pkg == null) return callback();
+            pkg = path.dirname(pkg);
+            return callback(null, pkg);
+          });
+        }
+
+        function typePath(callback) {
+          var cwd = process.cwd().replace(process.env.HOME, '~');
+
+          if (cwd[cwd.length-1] !== '/') cwd += '/';
+
+          if (id && cache[id]) {
             return callback(null, cache[id]);
           }
 
@@ -210,7 +228,7 @@ function start(data, callback) {
               return msg._.error('Deploy was not successful.');
             }
 
-            cache[id] = dir;
+            if (id) cache[id] = dir;
 
             return refreshData(function() {
               loading._.stop();
@@ -761,6 +779,24 @@ function start(data, callback) {
     mlist.hide();
     screen.restoreFocus();
     screen.render();
+  });
+
+  var fm = blessed.filemanager({
+    parent: screen,
+    label: ' Please select a {green-fg}package.json{/green-fg}: ',
+    border: {
+      type: 'ascii'
+    },
+    mouse: true,
+    keys: true,
+    vi: true,
+    left: 'center',
+    top: 'center',
+    width: 'half',
+    height: 'half',
+    selectedBg: 'blue',
+    itemHoverBg: 'blue',
+    hidden: true
   });
 
   var prompt = createPrompt();
