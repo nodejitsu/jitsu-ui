@@ -21,7 +21,7 @@ var fs = require('fs')
 
 function jitsu(args, cwd, callback) {
   var screen = createScreen()
-    , opt;
+    , options;
 
   if (!callback) {
     callback = cwd;
@@ -33,12 +33,12 @@ function jitsu(args, cwd, callback) {
   args.unshift(opt.userconfig + '.tmp');
   args.unshift('--userconfig');
 
-  opt = {
+  options = {
     env: process.env,
     cwd: cwd
   };
 
-  screen.exec('jitsu', args, opt, function(err, success) {
+  screen.exec('jitsu', args, options, function(err, success) {
     tempRemove();
     return callback(err, success);
   });
