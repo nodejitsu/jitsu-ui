@@ -915,7 +915,7 @@ function handleData(data) {
   var user = data.user
     , apps = data.apps;
 
-  data.longest = 0;
+  data.longest = 4;
   apps.forEach(function(app) {
     if (app.name.length > data.longest) {
       data.longest = app.name.length;
@@ -1350,8 +1350,15 @@ function auth(callback) {
         return confirm(function(err, key) {
           if (err) return callback(err);
           if (key == null) return callback(new Error('Bad key.'));
-          data.inviteCode = key;
-          return api.users.confirm(data, function(err) {
+
+          prompt.detach();
+
+          var _data = {
+            username: data.username,
+            inviteCode: key
+          };
+
+          return api.users.confirm(_data, function(err) {
             if (err) return callback(err);
             return api.users.auth(function(err, success) {
               if (err) return callback(err);
