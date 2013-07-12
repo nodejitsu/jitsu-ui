@@ -2,6 +2,9 @@
 
 /**
  * jitsu-ui
+ * Copyright (c) 2013, Christopher Jeffrey
+ * Copyright (c) 2013, Nodejitsu Inc.
+ * https://github.com/chjj/jitsu-ui
  */
 
 /**
@@ -17,69 +20,27 @@ var fs = require('fs')
   , opt;
 
 function jitsu(args, cwd, callback) {
+  var screen = createScreen()
+    , opt;
+
   if (!callback) {
     callback = cwd;
     cwd = process.cwd();
   }
 
-  var spawn = require('child_process').spawn;
-
-  var screen = createScreen();
-
   tempSave();
-
-  screen.program.normalBuffer();
-  screen.program.showCursor();
-  var _listenedMouse = screen._listenedMouse;
-  if (screen._listenedMouse) {
-    screen.program.disableMouse();
-  }
-
-  var write = process.stdout.write;
-  process.stdout.write = function() {};
-
-  try {
-    process.stdin.pause();
-  } catch (e) {
-    ;
-  }
-
-  var resume = function() {
-    tempRemove();
-
-    try {
-      process.stdin.resume();
-    } catch (e) {
-      ;
-    }
-    process.stdout.write = write;
-
-    screen.program.alternateBuffer();
-    screen.program.hideCursor();
-    if (_listenedMouse) {
-      screen.program.enableMouse();
-    }
-    screen.alloc();
-    screen.render();
-  };
 
   args.unshift(opt.userconfig + '.tmp');
   args.unshift('--userconfig');
 
-  var ps = spawn('jitsu', args, {
-    stdio: 'inherit',
+  opt = {
     env: process.env,
     cwd: cwd
-  });
+  };
 
-  ps.on('error', function(err) {
-    resume();
-    return callback(err, false);
-  });
-
-  ps.on('exit', function(code) {
-    resume();
-    return callback(null, code === 0);
+  screen.exec('jitsu', args, opt, function(err, success) {
+    tempRemove();
+    return callback(err, success);
   });
 }
 
@@ -102,6 +63,8 @@ function start(data, callback) {
       handleData(data);
 
       side.setItems(['user'].concat(data.apps.map(function(app) {
+        if (app.state === 'started') return '{green-fg}' + app.name + '{/green-fg}';
+        if (app.state === 'stopped') return '{red-fg}' + app.name + '{/red-fg}';
         return app.name;
       })));
 
@@ -121,12 +84,15 @@ function start(data, callback) {
     left: 0,
     top: 0,
     bottom: 0,
-    width: data.longest + 2,
+    width: data.side,
     selectedBg: 'blue',
     items: ['user'].concat(data.apps.map(function(app) {
+      if (app.state === 'started') return '{green-fg}' + app.name + '{/green-fg}';
+      if (app.state === 'stopped') return '{red-fg}' + app.name + '{/red-fg}';
       return app.name;
     })),
-    itemHoverBg: 'blue'
+    itemHoverBg: 'blue',
+    tags: true
   });
 
   side.on('select', function() {
@@ -136,7 +102,7 @@ function start(data, callback) {
   var sep = blessed.line({
     parent: screen,
     orientation: 'vertical',
-    left: data.longest + 2,
+    left: data.side,
     top: 0,
     bottom: 0
   });
@@ -147,13 +113,11 @@ function start(data, callback) {
     keys: true,
     vi: true,
     scrollbar: {
-      //fg: 'blue',
-      //ch: '│'
       bg: 'blue',
       ch: ' '
     },
     tags: true,
-    left: data.longest + 4,
+    left: data.side + 2,
     top: 0,
     bottom: 1,
     right: 0
@@ -163,7 +127,7 @@ function start(data, callback) {
 
   var bar = blessed.box({
     parent: screen,
-    left: data.longest + 3,
+    left: data.side + 1,
     right: 0,
     bottom: 0,
     height: 1,
@@ -180,10 +144,7 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var id = app.user + '/' + app.name
-          , focused = screen.focused;
-
-        //bar._.deploy.focus();
+        var id = app.user + '/' + app.name;
 
         function getPath(callback) {
           var cwd = process.cwd().replace(process.env.HOME, '~');
@@ -204,12 +165,10 @@ function start(data, callback) {
 
         return getPath(function(err, dir) {
           if (err) {
-            //focused.focus();
             return msg._.error(err.message);
           }
 
           if (!dir) {
-            //focused.focus();
             return;
           }
 
@@ -218,8 +177,6 @@ function start(data, callback) {
           function deploy(callback) {
             var args = ['deploy'];
             return getCloud(app, function(err, cloud) {
-              //focused.focus();
-
               if (err) return msg._.error(err.message);
               if (!cloud) return;
 
@@ -269,15 +226,10 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var focused = screen.focused;
-        bar._.destroy.focus();
-
         var text = 'Are you sure you want to destroy this?'
           + ' If so, type the app name.';
 
         return prompt._.type(text, function(err, res) {
-          focused.focus();
-
           if (err) return msg._.error(err.message);
 
           if (!res) return;
@@ -288,10 +240,6 @@ function start(data, callback) {
           }
 
           loading._.load('App is being {blue-fg}destroyed{/}. Please wait...');
-
-          //if (opt.debug) {
-          //  return setTimeout(loading._.stop, 5000);
-          //}
 
           return api.apps.destroy(app.name, function(err) {
             if (err) {
@@ -312,15 +260,10 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var focused = screen.focused;
-        bar._.start.focus();
-
         var text = 'Are you sure you want to {blue-fg}start{/} {green-fg}'
           + app.name + '{/}? (y/n)';
 
         return question._.ask(text, function(err, res) {
-          focused.focus();
-
           if (err) {
             loading._.stop();
             return msg._.error(err.message);
@@ -332,10 +275,6 @@ function start(data, callback) {
           }
 
           loading._.load('App is being {blue-fg}started{/}. Please wait...');
-
-          //if (opt.debug) {
-          //  return setTimeout(loading._.stop, 5000);
-          //}
 
           return api.apps.start(app.name, function(err) {
             if (err) {
@@ -356,15 +295,10 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var focused = screen.focused;
-        bar._.restart.focus();
-
         var text = 'Are you sure you want to restart {blue-fg}restart{/} {green-fg}'
           + app.name + '{/}? (y/n)';
 
         return question._.ask(text, function(err, res) {
-          focused.focus();
-
           if (err) {
             loading._.stop();
             return msg._.error(err.message);
@@ -376,10 +310,6 @@ function start(data, callback) {
           }
 
           loading._.load('App is being {blue-fg}restarted{/}. Please wait...');
-
-          //if (opt.debug) {
-          //  return setTimeout(loading._.stop, 5000);
-          //}
 
           return api.apps.restart(app.name, function(err) {
             if (err) {
@@ -400,15 +330,10 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var focused = screen.focused;
-        bar._.stop.focus();
-
         var text = 'Are you sure you want to {blue-fg}stop{/} {green-fg}'
           + app.name + '{/}? (y/n)';
 
         return question._.ask(text, function(err, res) {
-          focused.focus();
-
           if (err) {
             loading._.stop();
             return msg._.error(err.message);
@@ -420,10 +345,6 @@ function start(data, callback) {
           }
 
           loading._.load('App is being {blue-fg}stopped{/}. Please wait...');
-
-          //if (opt.debug) {
-          //  return setTimeout(loading._.stop, 5000);
-          //}
 
           return api.apps.stop(app.name, function(err) {
             if (err) {
@@ -458,7 +379,6 @@ function start(data, callback) {
             data = [];
 
             function sort(first, second) {
-              //return new Date(first.timestamp) - new Date(second.timestamp);
               return new Date(second.timestamp) - new Date(first.timestamp);
             }
 
@@ -529,8 +449,10 @@ function start(data, callback) {
 
             results.data.sort(sort).forEach(function(log) {
               if (log.json && log.json.message != null) {
-                out += new Date(log.timestamp).toUTCString() + '\n';
-                out += log.json.message;
+                out += '{green-fg}'
+                  + new Date(log.timestamp).toUTCString()
+                  + '{/green-fg}' + '\n';
+                out += log.json.message + '\n';
               }
             });
 
@@ -564,42 +486,52 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        return api.snapshots.list(app.name, function(err, snapshots) {
+        return api.apps.view(app.name, function(err, app_) {
           if (err) return msg._.error(err.message);
 
-          // TODO: Add {green-fg} to active snapshot.
-          var data = snapshots.map(function(snapshot) {
-            return snapshot.id
-              + ' - '
-              + snapshot.filename
-              + ' - '
-              + new Date(snapshot.ctime).toUTCString();
-          });
+          app = data._apps[side.selected - 1] = app_;
 
-          mlist._.show(data);
+          return api.snapshots.list(app.name, function(err, snapshots) {
+            if (err) return msg._.error(err.message);
 
-          screen.render();
+            var active;
 
-          mlist.once('action', function fn(el, index) {
-            if (!el) {
-              mlist.removeListener('action', fn);
-              return;
-            }
+            active = app.active || app.running || app.last || {};
+            active = active.id || app.version;
 
-            var i = data.indexOf(el.content);
+            var data = snapshots.map(function(snapshot) {
+              var out = snapshot.id + ' - '
+                + snapshot.filename + ' - '
+                + new Date(snapshot.ctime).toUTCString();
 
-            loading._.load(
-              'Snapshot is being {blue-fg}activated{/}.'
-              + ' Please wait...');
+              if (active === snapshot.id) {
+                return '{green-fg}' + out + '{/green-fg}';
+              }
 
-            //if (opt.debug) {
-            //  return setTimeout(loading._.stop, 5000);
-            //}
+              return out;
+            });
 
-            return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
-              if (err) return msg._.error(err.message);
-              return refreshData(function() {
-                loading._.stop();
+            mlist._.show(data);
+
+            screen.render();
+
+            mlist.once('action', function fn(el, index) {
+              if (!el) {
+                mlist.removeListener('action', fn);
+                return;
+              }
+
+              var i = data.indexOf(el.content.replace(/\{[^{}]+\}/g, ''));
+
+              loading._.load(
+                'Snapshot is being {blue-fg}activated{/}.'
+                + ' Please wait...');
+
+              return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
+                if (err) return msg._.error(err.message);
+                return refreshData(function() {
+                  loading._.stop();
+                });
               });
             });
           });
@@ -613,26 +545,26 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        return api.apps.view(app.name, function(err, app) {
+        return api.apps.view(app.name, function(err, app_) {
           if (err) return msg._.error(err.message);
 
+          app = data._apps[side.selected - 1] = app_;
+
           var env = app.env || {}
-            , data = ['-- New --'];
+            , out = ['-- New --'];
 
           Object.keys(env).forEach(function(key) {
-            data.push(key + '=' + env[key]);
+            out.push(key + '=' + env[key]);
           });
 
           var focused = screen.focused;
-          //screen.saveFocus();
 
-          mlist._.show(data);
+          mlist._.show(out);
 
           screen.render();
 
           mlist.on('action', function fn(el, index) {
             if (!el) {
-              //screen.restoreFocus();
               focused.focus();
               mlist.removeListener('action', fn);
               return;
@@ -651,7 +583,7 @@ function start(data, callback) {
                 });
               }
 
-              var parts = data[index].split('=')
+              var parts = out[index].split('=')
                 , key = parts[0]
                 , val = parts[1];
 
@@ -681,10 +613,6 @@ function start(data, callback) {
                 'Environment variable is being {blue-fg}set{/}.'
                 + ' Please wait...');
 
-              //if (opt.debug) {
-              //  return setTimeout(loading._.stop, 5000);
-              //}
-
               return api.apps.update(app.name, body, function(err) {
                 if (err) {
                   loading._.stop();
@@ -708,21 +636,12 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var focused = screen.focused;
-        bar._.cloud.focus();
-
         return getCloud(app, function(err, cloud) {
-          focused.focus();
-
           if (err) return msg._.error(err.message);
 
           if (!cloud) return;
 
           loading._.load('App is being {blue-fg}updated{/}. Please wait...');
-
-          //if (opt.debug) {
-          //  return setTimeout(loading._.stop, 5000);
-          //}
 
           return api.apps.endpoints(function(err, endpoints) {
             if (err) {
@@ -768,7 +687,6 @@ function start(data, callback) {
 
     'exit': {
       prefix: 'ESC',
-      //keys: ['escape'],
       callback: function() {
         screen.emit('keypress', '\x1b', { name: 'escape' });
       }
@@ -801,6 +719,9 @@ function start(data, callback) {
       autoFocus: false,
       hoverEffects: {
         bg: 'blue'
+      },
+      focusEffects: {
+        bg: 'blue'
       }
     });
 
@@ -817,15 +738,6 @@ function start(data, callback) {
     drawn += len + 3;
   });
 
-  screen.on('element focus', function(old, cur) {
-    if (old._bg) old.bg = old._bg;
-    if (cur.type === 'button') {
-      cur._bg = cur.bg;
-      cur.bg = 4;
-    }
-    screen.render();
-  });
-
   screen.on('keypress', function(ch, key) {
     if (key.name === 'tab') {
       if (!key.shift) {
@@ -836,11 +748,6 @@ function start(data, callback) {
       screen.render();
       return;
     }
-
-    if (key.name === 'c' && key.ctrl) {
-      return process.exit(0);
-    }
-
     if (key.name === 'escape') {
       if (screen.focused === side) {
         return process.exit(0);
@@ -868,32 +775,10 @@ function start(data, callback) {
     screen.render();
   });
 
-  // TODO: Fix problem when list item is clicked/focus when sidebar is unfocused.
-  // No background.
-  side.on('focus', function() {
-    var el = side.items[side.selected];
-    if (side._selectedBg != null) {
-      side.selectedBg = side._selectedBg;
-    }
-    if (el._bg != null) {
-      el.bg = side.selectedBg;
-    }
-    //el.bg = side.selectedBg;
-    screen.render();
-  });
-
-  side.on('blur', function() {
-    var el = side.items[side.selected];
-    if (side._selectedBg == null) {
-      side._selectedBg = side.selectedBg;
-    }
-    side.selectedBg = 0;
-    if (el._bg == null) {
-      el._bg = el.bg;
-    }
-    el.bg = 0;
-    screen.render();
-  });
+  screen.setEffects(side, side, 'blur', 'focus', { selectedBg: 'black' });
+  screen.setEffects(
+    function() { return side.items[side.selected]; },
+    side, 'blur', 'focus', { bg: 'black' });
 
   side.select(0);
   side.focus();
@@ -908,7 +793,12 @@ function start(data, callback) {
     selectedBg: 'blue',
     mouse: true,
     keys: true,
-    vi: true
+    vi: true,
+    tags: true,
+    scrollbar: {
+      bg: 'blue',
+      ch: ' '
+    },
   });
 
   mlist._.show = function(data, focused) {
@@ -1085,6 +975,16 @@ function handleData(data) {
     }
   });
 
+  // Should be this, but for some reason,
+  // {red-fg}my-app2{/red-fg} gets wrapped to:
+  // {red-fg}my-app\n2{/red-fg} when my-app2
+  // does not. Since escape codes are not printable
+  // characters, this means wrapContent is doing
+  // something wrong and determining length including
+  // at least 1 char from the escape code.
+  // data.side = Math.min(data.longest + 2, 10);
+  data.side = Math.min(data.longest + 3, 10);
+
   data._user = {
     username: user.username,
     status: user.status || 'unknown',
@@ -1225,7 +1125,18 @@ function handleData(data) {
 }
 
 function createScreen() {
-  return blessed.Screen.global || blessed.screen({ tput: true });
+  var global = blessed.Screen.global;
+  var screen = blessed.Screen.global || blessed.screen({ tput: true });
+
+  if (!global) {
+    screen.program.on('keypress', function(ch, key) {
+      if (key.name === 'c' && key.ctrl) {
+        return process.exit(0);
+      }
+    });
+  }
+
+  return screen;
 }
 
 function createPrompt() {
@@ -1475,10 +1386,8 @@ function auth(callback) {
 
   function typePassword(callback) {
     if (config.password) return callback();
-    //prompt._.input.secret = true;
     prompt._.input.censor = true;
     return prompt._.type('Type your password:', function(err, res) {
-      //prompt._.input.secret = false;
       prompt._.input.censor = false;
       if (err) return callback(err);
       return callback(err, res);
@@ -1495,6 +1404,7 @@ function auth(callback) {
         if (err) return callback(err);
         return confirm(function(err, key) {
           if (err) return callback(err);
+          if (key == null) return callback(new Error('Bad key.'));
           data.inviteCode = key;
           return api.users.confirm(data, function(err) {
             if (err) return callback(err);
@@ -1524,9 +1434,11 @@ function auth(callback) {
 
     return typeUsername(function(err, username) {
       if (err) return callback(err);
+      if (username == null) return callback(new Error('Bad username.'));
       if (username) config.username = username;
       return typePassword(function(err, password) {
         if (err) return callback(err);
+        if (password == null) return callback(new Error('Bad password.'));
         if (password) config.password = password;
         prompt.detach();
         return api.users.auth(function(err, success) {
@@ -1561,14 +1473,15 @@ function signup(callback) {
     var prompt = createPrompt();
     return prompt._.type('Type your username:', function(err, username) {
       if (err) return callback(err);
+      if (username == null) return callback(new Error('Bad username.'));
       return prompt._.type('Type your email:', function(err, email) {
         if (err) return callback(err);
-        //prompt._.input.secret = true;
+        if (email == null) return callback(new Error('Bad email.'));
         prompt._.input.censor = true;
         return prompt._.type('Type your password:', function(err, password) {
-          //prompt._.input.secret = false;
           prompt._.input.censor = false;
           if (err) return callback(err);
+          if (password == null) return callback(new Error('Bad password.'));
           return callback(null, {
             username: username,
             email: email,
@@ -1617,6 +1530,17 @@ function formatMain(opt, data, width) {
     } else if (typeof val !== 'string') {
       val = JSON.stringify(val);
     }
+
+    // App-only:
+    if (data.user && data.name && key === 'state') {
+      if (val === 'started') {
+        val = '{green-fg}' + val + '{/green-fg}';
+      }
+      if (val === 'stopped') {
+        val = '{red-fg}' + val + '{/red-fg}';
+      }
+    }
+
     if (longest + val.length >= width - 7) {
       val = val.substring(0, width - longest - 14) + '...';
     }
@@ -1685,7 +1609,7 @@ function parseArg(argv) {
 }
 
 function help() {
-  console.log('todo');
+  console.log('jitsu-ui - a text ui for jitsu.');
   return process.exit(0);
 }
 
@@ -1733,7 +1657,11 @@ function setup(callback) {
 }
 
 function save(callback) {
+  var uri = config.remoteUri;
+  delete config.remoteUri;
   var data = JSON.stringify(config, null, 2);
+  config.remoteUri = uri;
+
   if (!callback) {
     try {
       fs.writeFileSync(opt.userconfig, data);
@@ -1742,6 +1670,7 @@ function save(callback) {
     }
     return;
   }
+
   return fs.writeFile(opt.userconfig, data, callback);
 }
 
