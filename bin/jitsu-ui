@@ -1427,10 +1427,17 @@ function signup(callback) {
           prompt._.input.censor = false;
           if (err) return callback(err);
           if (password == null) return callback(new Error('Bad password.'));
-          return callback(null, {
-            username: username,
-            email: email,
-            password: password
+          prompt._.input.censor = true;
+          return prompt._.type('Verify your password:', function(err, verify) {
+            prompt._.input.censor = false;
+            if (err) return callback(err);
+            if (verify == null) return callback(new Error('Bad password.'));
+            if (password !== verify) return callback(new Error('Bad password.'));
+            return callback(null, {
+              username: username,
+              email: email,
+              password: password
+            });
           });
         });
       });
