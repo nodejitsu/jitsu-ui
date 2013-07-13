@@ -443,6 +443,9 @@ function start(data, callback) {
       }
     },
 
+    // TODO: Use separate lists for snapshots and env.
+    // TODO: Use separate content boxes for main and logs.
+
     'snapshots': {
       prefix: '7',
       keys: ['7'],
@@ -466,7 +469,7 @@ function start(data, callback) {
             active = app.active || app.running || app.last || {};
             active = active.id || app.version;
 
-            var data = snapshots.map(function(snapshot) {
+            var out = snapshots.map(function(snapshot) {
               var out = snapshot.id + ' - '
                 + snapshot.filename + ' - '
                 + new Date(snapshot.ctime).toUTCString();
@@ -478,26 +481,30 @@ function start(data, callback) {
               return out;
             });
 
-            mlist._.show(data);
+            mlist._.show(out);
 
             screen.render();
 
             mlist.once('action', function fn(el, index) {
               if (!el) {
-                mlist.removeListener('action', fn);
                 return;
               }
 
-              var i = data.indexOf(el.content);
+              var i = out.indexOf(el.content);
 
               loading._.load(
                 'Snapshot is being {blue-fg}activated{/}.'
                 + ' Please wait...');
 
               return api.snapshots.activate(app.name, snapshots[i].id, function(err) {
-                if (err) return msg._.error(err.message);
+                if (err) {
+                  msg._.error(err.message);
+                  commands.snapshots.callback();
+                  return;
+                }
                 return refreshData(function() {
                   loading._.stop();
+                  commands.snapshots.callback();
                 });
               });
             });
@@ -812,8 +819,11 @@ function start(data, callback) {
       type: 'ascii'
     },
     scrollbar: {
-      ch: ' ',
-      bg: 'green'
+      //ch: ' ',
+      //ch: '|',
+      //ch: '│',
+      ch: ':',
+      bg: 'blue'
     },
     mouse: true,
     keys: true,
