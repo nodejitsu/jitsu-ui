@@ -124,7 +124,8 @@ function start(data, callback) {
     right: 0
   });
 
-  screen.setEffects(sep, main, 'focus', 'blur', { border: { fg: 'blue' } });
+  // screen.setEffects(sep, main, 'focus', 'blur', { border: { fg: 'blue' } });
+  screen.setEffects(sep, main, 'focus', 'blur', { fg: 'blue' });
 
   var bar = blessed.box({
     parent: screen,
@@ -244,7 +245,7 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var text = 'Are you sure you want to destroy this?'
+        var text = 'Are you sure you want to {blue-fg}destroy{/} this?'
           + ' If so, type the app name.';
 
         return prompt._.type(text, function(err, res) {
@@ -313,7 +314,7 @@ function start(data, callback) {
       callback: function() {
         if (!app) return msg._.error('Not an app!');
 
-        var text = 'Are you sure you want to restart {blue-fg}restart{/} {green-fg}'
+        var text = 'Are you sure you want to {blue-fg}restart{/} {green-fg}'
           + app.name + '{/}? (y/n)';
 
         return question._.ask(text, function(err, res) {
@@ -712,7 +713,8 @@ function start(data, callback) {
       },
       focusEffects: {
         bg: 'blue'
-      }
+      },
+      mouse: true
     });
 
     bar._[name] = button;
@@ -771,6 +773,12 @@ function start(data, callback) {
     screen.render();
   });
 
+  // screen.on('resize', function() {
+  //   if (screen.focused === main) {
+  //     side.emit('scroll');
+  //   }
+  // });
+
   screen.setEffects(side, side, 'blur', 'focus', { selectedBg: 'black' });
   screen.setEffects(
     function() { return side.items[side.selected]; },
@@ -819,10 +827,9 @@ function start(data, callback) {
       type: 'ascii'
     },
     scrollbar: {
-      //ch: ' ',
+      ch: ' ',
       //ch: '|',
       //ch: '│',
-      ch: ':',
       bg: 'blue'
     },
     mouse: true,
@@ -1201,7 +1208,8 @@ function createPrompt() {
     align: 'center',
     bg: 'black',
     hoverBg: 'blue',
-    autoFocus: false
+    autoFocus: false,
+    mouse: true
   });
 
   prompt._.cancel = blessed.button({
@@ -1215,7 +1223,8 @@ function createPrompt() {
     align: 'center',
     bg: 'black',
     hoverBg: 'blue',
-    autoFocus: false
+    autoFocus: false,
+    mouse: true
   });
 
   prompt._.type = function(text, value, callback) {
@@ -1289,7 +1298,8 @@ function createQuestion() {
     align: 'center',
     bg: 'black',
     hoverBg: 'blue',
-    autoFocus: false
+    autoFocus: false,
+    mouse: true
   });
 
   question._.cancel = blessed.button({
@@ -1303,7 +1313,8 @@ function createQuestion() {
     align: 'center',
     bg: 'black',
     hoverBg: 'blue',
-    autoFocus: false
+    autoFocus: false,
+    mouse: true
   });
 
   question._.ask = function(text, callback) {
