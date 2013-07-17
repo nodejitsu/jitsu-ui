@@ -117,8 +117,12 @@ function start(data, callback) {
     keys: true,
     vi: true,
     scrollbar: {
-      bg: 'blue',
       ch: ' '
+    },
+    style: {
+      scrollbar: {
+        inverse: true
+      }
     },
     tags: true,
     left: data.side + 2,
@@ -798,13 +802,19 @@ function start(data, callback) {
     bottom: main.bottom,
     right: main.right,
     hidden: true,
-    selectedBg: 'blue',
     mouse: true,
     keys: true,
     vi: true,
     tags: true,
+    style: {
+      scrollbar: {
+        inverse: true
+      },
+      selected: {
+        bg: 'blue'
+      }
+    },
     scrollbar: {
-      bg: 'blue',
       ch: ' '
     },
   });
@@ -831,10 +841,20 @@ function start(data, callback) {
       type: 'ascii'
     },
     scrollbar: {
-      ch: ' ',
-      //ch: '|',
-      //ch: '│',
-      bg: 'blue'
+      ch: ' '
+    },
+    style: {
+      scrollbar: {
+        inverse: true
+      },
+      selected: {
+        bg: 'blue'
+      },
+      item: {
+        hover: {
+          bg: 'blue'
+        }
+      }
     },
     mouse: true,
     keys: true,
@@ -843,8 +863,6 @@ function start(data, callback) {
     top: 'center',
     width: 'half',
     height: 'half',
-    selectedBg: 'blue',
-    itemHoverBg: 'blue',
     hidden: true
   });
 
