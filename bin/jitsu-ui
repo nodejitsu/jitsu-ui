@@ -710,14 +710,15 @@ function start(data, callback) {
       width: len + 2,
       align: 'center',
       tags: true,
-      autoFocus: false,
-      hoverEffects: {
-        bg: 'blue'
-      },
-      focusEffects: {
-        bg: 'blue'
-      },
-      mouse: true
+      mouse: true,
+      style: {
+        hover: {
+          bg: 'blue'
+        },
+        focus: {
+          bg: 'blue'
+        }
+      }
     });
 
     bar._[name] = button;
@@ -726,7 +727,7 @@ function start(data, callback) {
     if (cmd.callback) {
       button.on('press', cmd.callback);
       if (cmd.keys) {
-        screen.key(cmd.keys[0], cmd.callback);
+        screen.key(cmd.keys, cmd.callback);
       }
     }
 
@@ -946,12 +947,12 @@ function start(data, callback) {
     hidden: true,
     top: 'center',
     left: 'center',
-    width: 'half',
     tags: true,
-    shrink: true,
+    height: 'shrink',
+    width: 'shrink',
     border: {
       type: 'ascii'
-    }
+    },
   });
 
   info._.show = function(text, callback) {
