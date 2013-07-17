@@ -2,7 +2,7 @@
   "name": "jitsu-ui",
   "description": "A TUI for jitsu.",
   "author": "Christopher Jeffrey",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "main": "./bin/jitsu-ui",
   "bin": "./bin/jitsu-ui",
   "man": "./man/jitsu-ui.1",
