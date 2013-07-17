@@ -2,7 +2,7 @@
   "name": "jitsu-ui",
   "description": "A TUI for jitsu.",
   "author": "Christopher Jeffrey",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "main": "./bin/jitsu-ui",
   "bin": "./bin/jitsu-ui",
   "man": "./man/jitsu-ui.1",
@@ -14,7 +14,7 @@
   "tags": ["nodejitsu", "jitsu", "tui"],
   "scripts": { "test": "node test/tput.js" },
   "dependencies": {
-    "blessed": ">= 0.0.17",
+    "blessed": ">= 0.0.18",
     "nodejitsu-api": ">= 0.4.6"
   }
 }
