@@ -8,9 +8,9 @@ Jitsu UI.
 
 ## Install
 
-`` bash
+``` bash
 $ npm install -g jitsu-ui
-``
+```
 
 ## License
 
